@@ -1,5 +1,5 @@
 import classNames from 'classnames';
-import React from 'react';
+import React, { ErrorInfo, ReactNode } from 'react';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import {
   SettingsTabNavigateProvider,
@@ -9,6 +9,7 @@ import { isElectronDesktop, resolveExtensionAssetUrl } from '@/renderer/utils/pl
 import { type IExtensionSettingsTab } from '@/common/adapter/ipcBridge';
 import { useExtensionSettingsTabs } from '@/renderer/hooks/system/useExtensionSettingsTabs';
 import {
+  BookOpen,
   Cat,
   Communication,
   Computer,
@@ -53,6 +54,12 @@ export function getBuiltinSettingsNavItems(isDesktop: boolean, t: TranslateFn): 
       icon: <Robot theme='outline' size='16' />,
       path: 'agent',
     },
+    memory: {
+      id: 'memory',
+      label: t('settings.memory', { defaultValue: 'Memories' }),
+      icon: <BookOpen theme='outline' size='16' fill='currentColor' />,
+      path: 'memory',
+    },
     skills: {
       id: 'skills',
       label: t('settings.skills', { defaultValue: 'Skills' }),
@@ -95,6 +102,36 @@ export function getBuiltinSettingsNavItems(isDesktop: boolean, t: TranslateFn): 
   };
 
   return BUILTIN_TAB_IDS.map((id) => builtinMap[id]);
+}
+
+/**
+ * Error Boundary que isola falhas de renderização de qualquer aba de Configurações
+ * para que elas não deixem a página inteira escura/branca.
+ */
+class SettingsErrorBoundary extends React.Component<{ children: ReactNode }, { hasError: boolean }> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError(): { hasError: boolean } {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
+    console.error('[SettingsPageWrapper] render error caught:', error, errorInfo);
+  }
+
+  render(): ReactNode {
+    if (this.state.hasError) {
+      return (
+        <div className='flex flex-col h-full overflow-hidden p-24px text-center'>
+          <div className='text-t-danger text-14px font-medium'>Não foi possível carregar esta página de Configurações.</div>
+          <div className='text-t-secondary text-12px mt-4px'>
+            Tente recarregar o app. Se o problema persistir, reporte o erro.
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 const SettingsPageWrapper: React.FC<SettingsPageWrapperProps> = ({ children, className, contentClassName }) => {
@@ -192,35 +229,37 @@ const SettingsPageWrapper: React.FC<SettingsPageWrapperProps> = ({ children, cla
   );
 
   return (
-    <SettingsViewModeProvider value='page'>
-      <SettingsTabNavigateProvider value={navigateToTab}>
-        <div className={containerClass}>
-          {isMobile && (
-            <div className='settings-mobile-top-nav'>
-              {menuItems.map((item) => {
-                const active = pathname.includes(`/settings/${item.path}`);
-                return (
-                  <button
-                    key={item.path}
-                    type='button'
-                    className={classNames('settings-mobile-top-nav__item', {
-                      'settings-mobile-top-nav__item--active': active,
-                    })}
-                    onClick={() => {
-                      void navigate(`/settings/${item.path}`, { replace: true });
-                    }}
-                  >
-                    <span className='settings-mobile-top-nav__icon'>{item.icon}</span>
-                    <span className='settings-mobile-top-nav__label'>{item.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-          <div className={contentClass}>{children}</div>
-        </div>
-      </SettingsTabNavigateProvider>
-    </SettingsViewModeProvider>
+    <SettingsErrorBoundary>
+      <SettingsViewModeProvider value='page'>
+        <SettingsTabNavigateProvider value={navigateToTab}>
+          <div className={containerClass}>
+            {isMobile && (
+              <div className='settings-mobile-top-nav'>
+                {menuItems.map((item) => {
+                  const active = pathname.includes(`/settings/${item.path}`);
+                  return (
+                    <button
+                      key={item.path}
+                      type='button'
+                      className={classNames('settings-mobile-top-nav__item', {
+                        'settings-mobile-top-nav__item--active': active,
+                      })}
+                      onClick={() => {
+                        void navigate(`/settings/${item.path}`, { replace: true });
+                      }}
+                    >
+                      <span className='settings-mobile-top-nav__icon'>{item.icon}</span>
+                      <span className='settings-mobile-top-nav__label'>{item.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <div className={contentClass}>{children}</div>
+          </div>
+        </SettingsTabNavigateProvider>
+      </SettingsViewModeProvider>
+    </SettingsErrorBoundary>
   );
 };
 
