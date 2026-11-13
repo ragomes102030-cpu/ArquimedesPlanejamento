@@ -38,8 +38,8 @@ on:
 
 env:
   BUN_INSTALL_REGISTRY: 'https://registry.npmjs.org/'
-  # Includes database migration 044, which the published v0.2.2 binary lacks.
-  AIONCORE_SOURCE_REF: 0268ceb03273ffbe884e28b958882c421cbf4f38
+  # Includes database migration 045 required by existing Arquimedes databases.
+  AIONCORE_SOURCE_REF: 71a4af8ddc83c4e2afe136d97875cbde54ff2cc4
   # Pinned AionHub tag for the offline hub fallback bundled into resources/hub.
   # Must exist in iOfficeAI/AionHub; scripts/prepareHubResources.js aborts the
   # build (exit 1) when neither mirror can serve the tag.
@@ -61,7 +61,7 @@ jobs:
       - name: Checkout compatible AionCore source
         uses: actions/checkout@v4
         with:
-          repository: iOfficeAI/AionCore
+          repository: ragomes102030-cpu/AionCore-Arquimedes
           ref: ${{ env.AIONCORE_SOURCE_REF }}
           path: core-source
 
@@ -225,7 +225,7 @@ jobs:
           GYP_MSVS_VERSION: 2022
           _WIN32_WINNT: 0x0A00
           # Use the pinned AionCore source built earlier in this job. The
-          # published upstream release predates database migration 44.
+          # published upstream release predates database migration 45.
           AIONCORE_BIN_PATH: ${{ github.workspace }}\core-source\target\x86_64-pc-windows-msvc\release\aioncore.exe
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
