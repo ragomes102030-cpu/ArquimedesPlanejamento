@@ -123,7 +123,24 @@ describe('rotas do Kanban servidas pelo desktop para o WebUI', () => {
     expect(listKanbanBoards(db)[0].cards.find((c) => c.id === cardId)!.assignee).toBe('Lima');
   });
 
-  it('4. move o cartao em PATCH /api/kanban/card/move', async () => {
+  it('4. cria um cartao em POST /api/kanban/card', async () => {
+    const board = listKanbanBoards(db)[0];
+    const triage = board.columns.find((c) => c.key === 'triage')!;
+    const { status, payload } = await call('/api/kanban/card', 'POST', {
+      board_id: board.id,
+      column_id: triage.id,
+      title: 'Novo serviço de campo',
+      description: 'Registrar o avanço da equipe.',
+      assignee: 'Lima',
+    });
+
+    expect(status).toBe(200);
+    expect(payload.data.title).toBe('Novo serviço de campo');
+    expect(payload.data.assignee).toBe('Lima');
+    expect(listKanbanBoards(db)[0].cards.some((c) => c.id === payload.data.id)).toBe(true);
+  });
+
+  it('5. move o cartao em PATCH /api/kanban/card/move', async () => {
     const done = listKanbanBoards(db)[0].columns.find((c) => c.key === 'done')!.id;
 
     const { status, payload } = await call('/api/kanban/card/move', 'PATCH', {
@@ -137,12 +154,12 @@ describe('rotas do Kanban servidas pelo desktop para o WebUI', () => {
     expect(listKanbanBoards(db)[0].cards.find((c) => c.id === cardId)!.column_id).toBe(done);
   });
 
-  it('5. ignora o que nao e do Kanban, para o proxy assumir', async () => {
+  it('6. ignora o que nao e do Kanban, para o proxy assumir', async () => {
     expect((await call('/api/providers')).handled).toBe(false);
     expect((await call('/api/mcp/servers')).handled).toBe(false);
   });
 
-  it('6. recusa rota do Kanban que nao existe, sem passar 500', async () => {
+  it('7. recusa rota do Kanban que nao existe, sem passar 500', async () => {
     const { handled, status, payload } = await call('/api/kanban/board', 'DELETE');
 
     expect(handled).toBe(true);
@@ -151,7 +168,7 @@ describe('rotas do Kanban servidas pelo desktop para o WebUI', () => {
     expect(payload.code).toBe('NOT_FOUND');
   });
 
-  it('7. corpo invalido vira 400 legivel e nao derruba o servidor', async () => {
+  it('8. corpo invalido vira 400 legivel e nao derruba o servidor', async () => {
     const { res, captured } = fakeRes();
     const handled = await handler(fakeReq('/api/kanban/card', 'PATCH', '{not json'), res);
 
@@ -160,15 +177,15 @@ describe('rotas do Kanban servidas pelo desktop para o WebUI', () => {
     expect(JSON.parse(captured.body).success).toBe(false);
   });
 
-  it('8. cartao inexistente responde 400 legivel', async () => {
+  it('9. cartao inexistente responde 400 legivel', async () => {
     const { status, payload } = await call('/api/kanban/card', 'PATCH', { id: 'card-nao-existe' });
 
     expect(status).toBe(400);
     expect(payload.error).toContain('not found');
   });
 
-  it('9. criar board continua fora do WebUI', async () => {
-    // Deliberately not served: restructuring the board is a desktop action.
+  it('10. criar board continua fora do WebUI', async () => {
+    // Restructuring the board remains a desktop action.
     const { status, payload } = await call('/api/kanban/board', 'POST', { name: 'novo' });
 
     expect(status).toBe(404);
@@ -215,6 +232,22 @@ describe('kanbanHostRoutes sobre o WebUI com allowRemote', () => {
     expect(captured.body).toContain('SESSION_REQUIRED');
     // O board real nao deve estar no corpo.
     expect(captured.body).not.toContain('cards');
+
+    const board = listKanbanBoards(db2)[0];
+    const createReq = fakeReq(
+      '/api/kanban/card',
+      'POST',
+      JSON.stringify({
+        board_id: board.id,
+        column_id: board.columns[0].id,
+        title: 'Nao autorizado',
+      })
+    );
+    const createRes = fakeRes();
+    const createHandled = await handler2(createReq, createRes.res);
+    expect(createHandled).toBe(true);
+    expect(createRes.captured.status).toBe(401);
+    expect(listKanbanBoards(db2)[0].cards).toHaveLength(0);
   });
 
   it('2. com cookie valido (access token): 200 e entrega o board', async () => {

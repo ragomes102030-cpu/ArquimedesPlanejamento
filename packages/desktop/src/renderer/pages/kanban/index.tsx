@@ -855,6 +855,9 @@ function CardEditorModal({
     setSaving(true);
     try {
       await onSave({ id: card.id, ...patch });
+    } catch (saveError) {
+      const reason = saveError instanceof Error ? saveError.message : String(saveError);
+      Message.error(`${t('agentTasks.kanban.saveFailed', { defaultValue: 'Could not save card' })}: ${reason}`);
     } finally {
       setSaving(false);
     }
@@ -903,6 +906,9 @@ function CardEditorModal({
             }
       );
       onClose();
+    } catch (saveError) {
+      const reason = saveError instanceof Error ? saveError.message : String(saveError);
+      Message.error(`${t('agentTasks.kanban.saveFailed', { defaultValue: 'Could not save card' })}: ${reason}`);
     } finally {
       setSaving(false);
     }

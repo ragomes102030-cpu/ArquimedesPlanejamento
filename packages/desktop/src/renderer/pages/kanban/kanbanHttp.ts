@@ -48,6 +48,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const kanbanHttpApi: KanbanAPI = {
   list: (_options?: KanbanListOptions): Promise<KanbanBoard[]> => request<KanbanBoard[]>('/board'),
 
+  createCard: (input: CreateKanbanCardInput) =>
+    request<KanbanCard>('/card', { method: 'POST', body: JSON.stringify(input) }),
+
   updateCard: (input: UpdateKanbanCardInput) =>
     request<KanbanCard>('/card', { method: 'PATCH', body: JSON.stringify(input) }),
 
@@ -61,7 +64,6 @@ export const kanbanHttpApi: KanbanAPI = {
   createRole: (_input: CreateKanbanRoleInput): Promise<KanbanRole> => Promise.reject(new Error(FIELD_DESKTOP_ONLY)),
   updateRole: (_input: UpdateKanbanRoleInput): Promise<KanbanRole> => Promise.reject(new Error(FIELD_DESKTOP_ONLY)),
   deleteRole: (_input: DeleteKanbanRoleInput): Promise<boolean> => Promise.reject(new Error(FIELD_DESKTOP_ONLY)),
-  createCard: (_input: CreateKanbanCardInput): Promise<KanbanCard> => Promise.reject(new Error(FIELD_DESKTOP_ONLY)),
   dispatchCard: (_input: DispatchKanbanCardInput): Promise<DispatchKanbanCardResult> =>
     Promise.reject(new Error(FIELD_DESKTOP_ONLY)),
   createColumn: (_input: CreateKanbanColumnInput): Promise<KanbanColumn> =>

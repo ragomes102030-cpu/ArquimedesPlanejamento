@@ -17,6 +17,7 @@ const JWT_ISSUER = 'aionui';
 const JWT_AUDIENCE = 'aionui-webui';
 
 import {
+  createKanbanCard,
   listKanbanBoards,
   moveKanbanCard,
   updateKanbanCard,
@@ -182,6 +183,12 @@ export function createKanbanHostRoutes(
       if (route === '/board' && method === 'GET') {
         const includeArchived = /[?&]include_archived=true/.test(url);
         sendJson(res, 200, { data: listKanbanBoards(db, { include_archived: includeArchived }) });
+        return true;
+      }
+
+      if (route === '/card' && method === 'POST') {
+        const input = JSON.parse((await readBody(req)) || '{}');
+        sendJson(res, 200, { data: createKanbanCard(db, input) });
         return true;
       }
 

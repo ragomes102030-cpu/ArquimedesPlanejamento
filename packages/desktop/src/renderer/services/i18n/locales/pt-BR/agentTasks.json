@@ -108,6 +108,7 @@
     "archive": "Arquivar card",
     "archiveConfirm": "Arquivar este card?",
     "saved": "Card salvo",
+    "saveFailed": "Não foi possível salvar o card",
     "archived": "Card arquivado",
     "assignBeforeDispatch": "Atribua um responsável antes de despachar este card.",
     "dispatch": "Despachar",

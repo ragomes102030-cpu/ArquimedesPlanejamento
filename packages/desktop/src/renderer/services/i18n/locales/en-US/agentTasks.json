@@ -108,6 +108,7 @@
     "archive": "Archive card",
     "archiveConfirm": "Archive this card?",
     "saved": "Card saved",
+    "saveFailed": "Could not save card",
     "archived": "Card archived",
     "assignBeforeDispatch": "Assign an owner before dispatching this card.",
     "dispatch": "Dispatch",
