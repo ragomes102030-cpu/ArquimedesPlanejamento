@@ -394,7 +394,7 @@ const main = async () => {
     warn('modo dry-run: build nao executado');
   } else {
     log('      (isso leva em torno de 13 minutos)\n');
-    const build = exec(BIN('npm'), ['run', 'dist:win'], { stdio: 'inherit' });
+    const build = exec(BIN('bun'), ['run', 'dist:win'], { stdio: 'inherit' });
     if (build.status !== 0) {
       if (bump.changed) writeVersion(bump.previous);
       fail('a compilacao falhou. O package.json foi restaurado.');
