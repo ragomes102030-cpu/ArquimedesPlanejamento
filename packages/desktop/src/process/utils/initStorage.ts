@@ -29,6 +29,7 @@ import {
 } from './utils';
 import { runLegacyDatabaseMigrations } from '@process/services/database/runLegacyDatabaseMigrations';
 import { BUILTIN_IMAGE_GEN_ID } from '../resources/builtinMcp/constants';
+import { syncFactorySkills } from './factorySkillSync';
 // Platform and architecture types (moved from deleted updateConfig)
 type PlatformType = 'win32' | 'darwin' | 'linux';
 type ArchitectureType = 'x64' | 'arm64' | 'ia32' | 'arm';
@@ -417,6 +418,10 @@ const resolveFactorySkillsDir = (): string | null => {
 };
 
 const SKIP_SEED_DIRS = new Set(['.git', 'node_modules', 'docs', 'assets', 'bin', 'hooks', 'evals']);
+// Exact fingerprint of the last pre-manifest CivilTutor seed; only matching copies are migrated.
+const LEGACY_FACTORY_SKILL_HASHES = {
+  'civil-tutor': '78885c9ae162691d8e50b0d0432fd925dac23a33db41461c7c3c573bacd7c922',
+};
 
 /**
  * Depth-first walk that yields every directory under `root` containing a
@@ -462,24 +467,8 @@ const collectSkillDirs = async (root: string, depth = 0): Promise<string[]> => {
 };
 
 /**
- * Copy only entries that do NOT already exist in the destination.
- * Never overwrites user-modified skills — factory seed is additive.
- */
-const copyMissingEntries = async (srcDir: string, destDir: string): Promise<number> => {
-  let seeded = 0;
-  for (const skillDir of await collectSkillDirs(srcDir)) {
-    const name = path.basename(skillDir);
-    const destPath = path.join(destDir, name);
-    if (existsSync(destPath)) continue;
-    await copyDirectoryRecursively(skillDir, destPath);
-    seeded += 1;
-  }
-  return seeded;
-};
-
-/**
- * Seed clone-owned factory skills into the user skills dir.
- * Additive only: existing user skills are never overwritten.
+ * Seed new factory skills and safely update copies that still match a known
+ * bundled version. User-modified or untracked skills are never overwritten.
  */
 const seedFactorySkills = async (userSkillsDir: string): Promise<void> => {
   const factoryDir = resolveFactorySkillsDir();
@@ -488,10 +477,15 @@ const seedFactorySkills = async (userSkillsDir: string): Promise<void> => {
     return;
   }
   try {
-    const seeded = await copyMissingEntries(factoryDir, userSkillsDir);
-    console.log(
-      `[Arquimedes] factory skills seeded: ${seeded} new entr${seeded === 1 ? 'y' : 'ies'} from ${factoryDir}`
-    );
+    const result = await syncFactorySkills(await collectSkillDirs(factoryDir), userSkillsDir, {
+      legacyManagedHashes: LEGACY_FACTORY_SKILL_HASHES,
+    });
+    console.log(`[Arquimedes] factory skills: ${result.installed} installed, ${result.updated} updated`);
+    if (result.preservedSkills.length > 0) {
+      console.warn(
+        `[Arquimedes] customized factory skills preserved; review updates for: ${result.preservedSkills.join(', ')}`
+      );
+    }
   } catch (error) {
     console.error('[Arquimedes] Failed to seed factory skills:', error);
   }

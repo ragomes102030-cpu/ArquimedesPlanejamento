@@ -23,5 +23,41 @@
   "cancelAria": "Cancel task",
   "cancelConfirm": "Cancel this task?",
   "cancelSuccess": "Task cancelled",
-  "cancelError": "Could not cancel task"
+  "cancelError": "Could not cancel task",
+  "kanban": {
+    "dailyLog": {
+      "plannedQuantity": "Planned quantity",
+      "unit": "Unit",
+      "unitPlaceholder": "e.g. m?",
+      "title": "Daily field log",
+      "immutableHint": "Each save adds a dated record. Entries cannot be edited or deleted.",
+      "loadFailed": "Could not load field history",
+      "refresh": "Refresh history",
+      "executed": "Executed",
+      "remaining": "Remaining",
+      "progress": "Progress",
+      "average": "Average pace",
+      "day": "day",
+      "projected": "Projected effort",
+      "workDays": "working days",
+      "projectionHint": "Estimated from {{count}} measured work day(s); holidays and dependencies are not included.",
+      "date": "Work date",
+      "quantity": "Executed quantity",
+      "crew": "Crew on site",
+      "hours": "Hours worked",
+      "equipment": "Equipment",
+      "occurrence": "Occurrence / notes",
+      "unitRequired": "Enter a unit for the quantity.",
+      "save": "Save field entry",
+      "saved": "Daily entry saved",
+      "saveFailed": "Could not save field entry",
+      "history": "History ({{count}})",
+      "hoursShort": "h",
+      "empty": "No field entries yet.",
+      "location": "Front / work location",
+      "locationPlaceholder": "Building, floor, axis, or work front",
+      "paceRisk": "Pace at risk",
+      "paceRiskTooltip": "At the measured pace, the remaining work is projected to exceed the available working days before the deadline. This is a field estimate, not a CPM forecast."
+    }
+  }
 }

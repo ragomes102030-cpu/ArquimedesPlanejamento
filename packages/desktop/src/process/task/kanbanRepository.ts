@@ -14,8 +14,10 @@ import type Database from 'better-sqlite3';
 import { createTask, getTask } from './taskRepository';
 import {
   KANBAN_DEFAULT_COLUMNS,
+  summarizeKanbanProduction,
   type CreateKanbanBoardInput,
   type CreateKanbanCardInput,
+  type CreateKanbanDailyLogInput,
   type CreateKanbanColumnInput,
   type CreateKanbanRoleInput,
   type DeleteKanbanBoardResult,
@@ -23,6 +25,7 @@ import {
   type DispatchKanbanCardResult,
   type KanbanBoard,
   type KanbanCard,
+  type KanbanDailyLog,
   type KanbanColumn,
   type KanbanListOptions,
   type KanbanPriority,
@@ -92,8 +95,25 @@ type CardRow = {
   not_done_reason: string | null;
   blocked_reason: string | null;
   blocked_since: number | null;
+  planned_quantity: number | null;
+  quantity_unit: string | null;
   created_at: number;
   updated_at: number;
+};
+
+type DailyLogRow = {
+  id: string;
+  card_id: string;
+  idempotency_key: string;
+  work_date: string;
+  location: string | null;
+  quantity: number | null;
+  unit: string | null;
+  crew: string | null;
+  hours: number | null;
+  equipment: string | null;
+  occurrence: string | null;
+  created_at: number;
 };
 
 const BOARD_COLUMNS = 'id, name, description, archived, manager_role_id, manager_instructions, created_at, updated_at';
@@ -101,7 +121,9 @@ const COLUMN_COLUMNS = 'id, board_id, key, name, position, color, system';
 const ROLE_COLUMNS =
   'id, board_id, name, assistant_id, team_id, responsibility, color, position, created_at, updated_at';
 const CARD_COLUMNS =
-  'id, board_id, column_id, title, description, priority, role_id, assignee, task_id, workspace, position, archived, scheduled_for, start_for, started_at, finished_at, reason_code, not_done_reason, blocked_reason, blocked_since, created_at, updated_at';
+  'id, board_id, column_id, title, description, priority, role_id, assignee, task_id, workspace, position, archived, scheduled_for, start_for, started_at, finished_at, reason_code, not_done_reason, blocked_reason, blocked_since, planned_quantity, quantity_unit, created_at, updated_at';
+const DAILY_LOG_COLUMNS =
+  'id, card_id, idempotency_key, work_date, location, quantity, unit, crew, hours, equipment, occurrence, created_at';
 
 function newId(prefix: string): string {
   return `${prefix}-${Date.now()}-${randomBytes(4).toString('hex')}`;
@@ -160,8 +182,27 @@ function toCard(row: CardRow): KanbanCard {
     not_done_reason: row.not_done_reason,
     blocked_reason: row.blocked_reason as KanbanReasonCode | null,
     blocked_since: row.blocked_since,
+    planned_quantity: row.planned_quantity,
+    quantity_unit: row.quantity_unit,
     created_at: row.created_at,
     updated_at: row.updated_at,
+  };
+}
+
+function toDailyLog(row: DailyLogRow): KanbanDailyLog {
+  return {
+    id: row.id,
+    card_id: row.card_id,
+    idempotency_key: row.idempotency_key,
+    work_date: row.work_date,
+    location: row.location,
+    quantity: row.quantity,
+    unit: row.unit,
+    crew: row.crew,
+    hours: row.hours,
+    equipment: row.equipment,
+    occurrence: row.occurrence,
+    created_at: row.created_at,
   };
 }
 
@@ -197,6 +238,19 @@ function readBoard(db: KanbanDatabase, id: string): KanbanBoard | null {
   const cards = db
     .prepare(`SELECT ${CARD_COLUMNS} FROM kanban_cards WHERE board_id = ? ORDER BY position ASC, id ASC`)
     .all(id) as CardRow[];
+  const productionRows = db
+    .prepare(
+      `SELECT ${DAILY_LOG_COLUMNS} FROM kanban_daily_logs
+       WHERE card_id IN (SELECT id FROM kanban_cards WHERE board_id = ?)
+       ORDER BY work_date DESC, created_at DESC`
+    )
+    .all(id) as DailyLogRow[];
+  const logsByCard = new Map<string, KanbanDailyLog[]>();
+  for (const row of productionRows) {
+    const entries = logsByCard.get(row.card_id) ?? [];
+    entries.push(toDailyLog(row));
+    logsByCard.set(row.card_id, entries);
+  }
   return {
     id: board.id,
     name: board.name,
@@ -206,7 +260,12 @@ function readBoard(db: KanbanDatabase, id: string): KanbanBoard | null {
     manager_instructions: board.manager_instructions,
     columns: columns.map(toColumn),
     roles: roles.map(toRole),
-    cards: cards.map((row) => ({ ...toCard(row), depends_on: readCardDependencies(db, row.id) })),
+    cards: cards.map((row) =>
+      Object.assign(toCard(row), {
+        production_summary: summarizeKanbanProduction(row.planned_quantity, logsByCard.get(row.id) ?? []),
+        depends_on: readCardDependencies(db, row.id),
+      })
+    ),
     created_at: board.created_at,
     updated_at: board.updated_at,
   };
@@ -286,11 +345,28 @@ export function ensureKanbanSchema(db: KanbanDatabase): void {
       not_done_reason TEXT,
       blocked_reason TEXT,
       blocked_since INTEGER,
+      planned_quantity REAL,
+      quantity_unit TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       FOREIGN KEY(board_id) REFERENCES kanban_boards(id) ON DELETE CASCADE,
       FOREIGN KEY(column_id) REFERENCES kanban_columns(id),
       FOREIGN KEY(role_id) REFERENCES kanban_roles(id) ON DELETE SET NULL
+    );
+    CREATE TABLE IF NOT EXISTS kanban_daily_logs (
+      id TEXT PRIMARY KEY,
+      card_id TEXT NOT NULL,
+      idempotency_key TEXT NOT NULL UNIQUE,
+      work_date TEXT NOT NULL,
+      location TEXT,
+      quantity REAL,
+      unit TEXT,
+      crew TEXT,
+      hours REAL,
+      equipment TEXT,
+      occurrence TEXT,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY(card_id) REFERENCES kanban_cards(id) ON DELETE CASCADE
     );
     CREATE TABLE IF NOT EXISTS kanban_card_dependencies (
       card_id TEXT NOT NULL,
@@ -322,14 +398,23 @@ export function ensureKanbanSchema(db: KanbanDatabase): void {
     ['start_for', 'ALTER TABLE kanban_cards ADD COLUMN start_for INTEGER'],
     ['blocked_reason', 'ALTER TABLE kanban_cards ADD COLUMN blocked_reason TEXT'],
     ['blocked_since', 'ALTER TABLE kanban_cards ADD COLUMN blocked_since INTEGER'],
+    ['planned_quantity', 'ALTER TABLE kanban_cards ADD COLUMN planned_quantity REAL'],
+    ['quantity_unit', 'ALTER TABLE kanban_cards ADD COLUMN quantity_unit TEXT'],
   ];
   for (const [name, statement] of cardAdditions) {
     if (!cardColumns.some((column) => column.name === name)) db.exec(statement);
+  }
+  const dailyLogColumns = db.prepare('PRAGMA table_info(kanban_daily_logs)').all() as Array<{ name: string }>;
+  if (!dailyLogColumns.some((column) => column.name === 'location')) {
+    db.exec('ALTER TABLE kanban_daily_logs ADD COLUMN location TEXT');
   }
   // After the ALTERs: on a database created before these columns existed, an
   // index over them cannot be created inside the block above.
   db.exec('CREATE INDEX IF NOT EXISTS idx_kanban_cards_assignee ON kanban_cards(assignee)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_kanban_cards_reason ON kanban_cards(reason_code)');
+  db.exec(
+    'CREATE INDEX IF NOT EXISTS idx_kanban_daily_logs_card_date ON kanban_daily_logs(card_id, work_date DESC, created_at DESC)'
+  );
 }
 
 function ensureDefaultBoard(db: KanbanDatabase): void {
@@ -417,20 +502,30 @@ export function updateKanbanBoard(db: KanbanDatabase, input: UpdateKanbanBoardIn
 
 export function deleteKanbanBoard(db: KanbanDatabase, id: string): DeleteKanbanBoardResult {
   ensureKanbanSchema(db);
-  if (!getBoardRow(db, id)) return { deleted: false, cards: 0, roles: 0, columns: 0 };
-  const count = (table: 'kanban_cards' | 'kanban_roles' | 'kanban_columns'): number =>
-    (db.prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE board_id = ?`).get(id) as { count: number }).count;
-  const result = { cards: count('kanban_cards'), roles: count('kanban_roles'), columns: count('kanban_columns') };
-  const remove = db.transaction(() => {
-    // Task rows are intentionally preserved: deleting a board removes its
-    // planning metadata, not the audit/history of work already executed.
+  const remove = db.transaction((): DeleteKanbanBoardResult => {
+    if (!getBoardRow(db, id)) return { deleted: false, cards: 0, roles: 0, columns: 0 };
+    const fieldEntryCount = (
+      db
+        .prepare(
+          `SELECT COUNT(*) AS count FROM kanban_daily_logs
+           WHERE card_id IN (SELECT id FROM kanban_cards WHERE board_id = ?)`
+        )
+        .get(id) as { count: number }
+    ).count;
+    if (fieldEntryCount > 0) {
+      throw new Error('This board has field entries. Archive it instead to preserve the field history.');
+    }
+    const count = (table: 'kanban_cards' | 'kanban_roles' | 'kanban_columns'): number =>
+      (db.prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE board_id = ?`).get(id) as { count: number }).count;
+    const result = { cards: count('kanban_cards'), roles: count('kanban_roles'), columns: count('kanban_columns') };
+    // Task rows are intentionally preserved when deleting planning metadata.
     db.prepare('DELETE FROM kanban_cards WHERE board_id = ?').run(id);
     db.prepare('DELETE FROM kanban_roles WHERE board_id = ?').run(id);
     db.prepare('DELETE FROM kanban_columns WHERE board_id = ?').run(id);
     db.prepare('DELETE FROM kanban_boards WHERE id = ?').run(id);
+    return { deleted: true, ...result };
   });
-  remove();
-  return { deleted: true, ...result };
+  return remove.immediate();
 }
 
 export function createKanbanRole(db: KanbanDatabase, input: CreateKanbanRoleInput): KanbanRole {
@@ -511,6 +606,11 @@ export function createKanbanCard(db: KanbanDatabase, input: CreateKanbanCardInpu
   if (!column || column.board_id !== input.board_id) throw new Error('Kanban column not found on this board');
   const title = input.title.trim();
   if (!title) throw new Error('Kanban card title must not be empty');
+  const plannedQuantity = input.planned_quantity ?? null;
+  const quantityUnit = optionalText(input.quantity_unit, 'Unit', 32);
+  if (plannedQuantity !== null && (!Number.isFinite(plannedQuantity) || plannedQuantity < 0))
+    throw new Error('Planned quantity must be a non-negative number');
+  if (plannedQuantity !== null && !quantityUnit) throw new Error('A unit is required for the planned quantity');
   const timestamp = now();
   const id = newId('card');
   const position = (
@@ -522,8 +622,8 @@ export function createKanbanCard(db: KanbanDatabase, input: CreateKanbanCardInpu
   ).next_position;
   db.prepare(
     `INSERT INTO kanban_cards
-       (id, board_id, column_id, title, description, priority, role_id, assignee, task_id, workspace, position, archived, scheduled_for, start_for, started_at, finished_at, reason_code, not_done_reason, blocked_reason, blocked_since, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, 0, ?, ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?)`
+       (id, board_id, column_id, title, description, priority, role_id, assignee, task_id, workspace, position, archived, scheduled_for, start_for, started_at, finished_at, reason_code, not_done_reason, blocked_reason, blocked_since, planned_quantity, quantity_unit, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, 0, ?, ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     input.board_id,
@@ -539,6 +639,8 @@ export function createKanbanCard(db: KanbanDatabase, input: CreateKanbanCardInpu
     input.start_for ?? null,
     input.blocked_reason ?? null,
     input.blocked_since ?? null,
+    plannedQuantity,
+    quantityUnit,
     timestamp,
     timestamp
   );
@@ -556,11 +658,25 @@ export function updateKanbanCard(db: KanbanDatabase, input: UpdateKanbanCardInpu
   if (!column || column.board_id !== current.board_id) throw new Error('Kanban column not found on this board');
   const title = input.title === undefined ? current.title : input.title.trim();
   if (!title) throw new Error('Kanban card title must not be empty');
+  const plannedQuantity = input.planned_quantity === undefined ? current.planned_quantity : input.planned_quantity;
+  const quantityUnit =
+    input.quantity_unit === undefined ? current.quantity_unit : optionalText(input.quantity_unit, 'Unit', 32);
+  if (plannedQuantity !== null && (!Number.isFinite(plannedQuantity) || plannedQuantity < 0))
+    throw new Error('Planned quantity must be a non-negative number');
+  if (plannedQuantity !== null && !quantityUnit) throw new Error('A unit is required for the planned quantity');
+  if (input.quantity_unit !== undefined && quantityUnit?.toLowerCase() !== current.quantity_unit?.toLowerCase()) {
+    const recordedUnit = db
+      .prepare('SELECT unit FROM kanban_daily_logs WHERE card_id = ? AND quantity IS NOT NULL LIMIT 1')
+      .get(input.id) as { unit: string | null } | undefined;
+    if (recordedUnit && quantityUnit?.toLowerCase() !== recordedUnit.unit?.toLowerCase()) {
+      throw new Error('The service unit cannot change after daily quantities have been recorded');
+    }
+  }
   db.prepare(
     `UPDATE kanban_cards
      SET title = ?, description = ?, priority = ?, role_id = ?, column_id = ?, task_id = ?, workspace = ?, archived = ?,
          assignee = ?, scheduled_for = ?, start_for = ?, started_at = ?, finished_at = ?, reason_code = ?, not_done_reason = ?,
-         blocked_reason = ?, blocked_since = ?, updated_at = ?
+         blocked_reason = ?, blocked_since = ?, planned_quantity = ?, quantity_unit = ?, updated_at = ?
      WHERE id = ?`
   ).run(
     title,
@@ -580,12 +696,131 @@ export function updateKanbanCard(db: KanbanDatabase, input: UpdateKanbanCardInpu
     input.not_done_reason === undefined ? current.not_done_reason : input.not_done_reason?.trim() || null,
     input.blocked_reason === undefined ? current.blocked_reason : input.blocked_reason,
     input.blocked_since === undefined ? current.blocked_since : input.blocked_since,
+    plannedQuantity,
+    quantityUnit,
     now(),
     input.id
   );
   const card = getCardRow(db, input.id);
   if (!card) throw new Error('Kanban card not found after update');
   return toCard(card);
+}
+
+function validateWorkDate(value: string): string {
+  const parsed = /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T00:00:00.000Z`) : null;
+  if (!parsed || Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) {
+    throw new Error('Work date must be a valid YYYY-MM-DD date');
+  }
+  return value;
+}
+
+function optionalText(value: string | null | undefined, field: string, maxLength: number): string | null {
+  const normalized = value?.trim() || null;
+  if (normalized && normalized.length > maxLength) throw new Error(`${field} must be ${maxLength} characters or fewer`);
+  return normalized;
+}
+
+function sameDailyLog(row: DailyLogRow, input: Omit<CreateKanbanDailyLogInput, 'idempotency_key'>): boolean {
+  return (
+    row.card_id === input.card_id &&
+    row.work_date === input.work_date &&
+    row.location === (input.location?.trim() || null) &&
+    row.quantity === (input.quantity ?? null) &&
+    row.unit === (input.unit?.trim() || null) &&
+    row.crew === (input.crew?.trim() || null) &&
+    row.hours === (input.hours ?? null) &&
+    row.equipment === (input.equipment?.trim() || null) &&
+    row.occurrence === (input.occurrence?.trim() || null)
+  );
+}
+
+/** Returns the immutable daily history for one planned service. */
+export function listKanbanDailyLogs(db: KanbanDatabase, cardId: string): KanbanDailyLog[] {
+  ensureKanbanSchema(db);
+  if (!getCardRow(db, cardId)) throw new Error('Kanban card not found');
+  return (
+    db
+      .prepare(
+        `SELECT ${DAILY_LOG_COLUMNS} FROM kanban_daily_logs
+         WHERE card_id = ? ORDER BY work_date DESC, created_at DESC, id DESC`
+      )
+      .all(cardId) as DailyLogRow[]
+  ).map(toDailyLog);
+}
+
+/**
+ * Adds one immutable field entry. A client-generated key makes a retry after a
+ * lost connection safe: the same submission returns its existing row.
+ */
+export function createKanbanDailyLog(db: KanbanDatabase, input: CreateKanbanDailyLogInput): KanbanDailyLog {
+  ensureKanbanSchema(db);
+  const card = getCardRow(db, input.card_id);
+  if (!card) throw new Error('Kanban card not found');
+  const idempotencyKey = input.idempotency_key.trim();
+  if (!idempotencyKey || idempotencyKey.length > 128) throw new Error('A valid idempotency key is required');
+  const workDate = validateWorkDate(input.work_date);
+  const location = optionalText(input.location, 'Location', 200);
+  const quantity = input.quantity ?? null;
+  const unit = quantity === null ? null : optionalText(input.unit, 'Unit', 32);
+  const crew = optionalText(input.crew, 'Crew', 200);
+  const equipment = optionalText(input.equipment, 'Equipment', 300);
+  const occurrence = optionalText(input.occurrence, 'Occurrence', 2000);
+  const hours = input.hours ?? null;
+  if (quantity !== null && (!Number.isFinite(quantity) || quantity < 0))
+    throw new Error('Executed quantity must be a non-negative number');
+  if (quantity !== null && !unit) throw new Error('A unit is required for the executed quantity');
+  if (hours !== null && (!Number.isFinite(hours) || hours < 0 || hours > 24))
+    throw new Error('Hours must be between 0 and 24');
+  if (quantity === null && hours === null && !equipment && !occurrence)
+    throw new Error('Add quantity, hours, equipment or an occurrence before saving');
+
+  if (quantity !== null) {
+    const knownUnit =
+      card.quantity_unit?.trim() ||
+      (
+        db
+          .prepare(
+            'SELECT unit FROM kanban_daily_logs WHERE card_id = ? AND unit IS NOT NULL ORDER BY created_at ASC LIMIT 1'
+          )
+          .get(card.id) as { unit: string } | undefined
+      )?.unit;
+    if (knownUnit && unit && knownUnit.toLowerCase() !== unit.toLowerCase())
+      throw new Error(`Unit must match the service unit (${knownUnit})`);
+  }
+
+  const normalizedInput: Omit<CreateKanbanDailyLogInput, 'idempotency_key'> = {
+    card_id: card.id,
+    work_date: workDate,
+    location,
+    quantity,
+    unit,
+    crew,
+    hours,
+    equipment,
+    occurrence,
+  };
+  const existing = db
+    .prepare(`SELECT ${DAILY_LOG_COLUMNS} FROM kanban_daily_logs WHERE idempotency_key = ?`)
+    .get(idempotencyKey) as DailyLogRow | undefined;
+  if (existing) {
+    if (!sameDailyLog(existing, normalizedInput))
+      throw new Error('This idempotency key was already used for a different field entry');
+    return toDailyLog(existing);
+  }
+
+  const id = newId('dailylog');
+  db.prepare(
+    `INSERT OR IGNORE INTO kanban_daily_logs
+       (id, card_id, idempotency_key, work_date, location, quantity, unit, crew, hours, equipment, occurrence, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(id, card.id, idempotencyKey, workDate, location, quantity, unit, crew, hours, equipment, occurrence, now());
+  const saved = db
+    .prepare(`SELECT ${DAILY_LOG_COLUMNS} FROM kanban_daily_logs WHERE idempotency_key = ?`)
+    .get(idempotencyKey) as DailyLogRow | undefined;
+  if (!saved) throw new Error('Daily field entry could not be read after saving');
+  if (!sameDailyLog(saved, normalizedInput))
+    throw new Error('This idempotency key was already used for a different field entry');
+  return toDailyLog(saved);
 }
 
 function writeOrderedCards(db: KanbanDatabase, cards: CardRow[]): void {

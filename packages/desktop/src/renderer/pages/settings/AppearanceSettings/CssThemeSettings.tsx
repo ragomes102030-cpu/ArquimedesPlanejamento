@@ -256,7 +256,7 @@ const CssThemeSettings: React.FC = () => {
     return map;
   }, [themes, currentTheme]);
 
-  // Virtual "Follow System" card, third in the gallery (after Light and Dark).
+  // Virtual "Follow System" card, last in the gallery.
   // Not part of BUILTIN_THEMES — it must never enter resolution/dedup/persistence.
   const displayThemes = useMemo(() => {
     if (themes.length === 0) return themes;
@@ -269,7 +269,7 @@ const CssThemeSettings: React.FC = () => {
       updated_at: 0,
     };
     const arr = [...themes];
-    arr.splice(Math.min(2, arr.length), 0, systemCard);
+    arr.push(systemCard);
     return arr;
   }, [themes, t]);
 
@@ -483,7 +483,10 @@ const CssThemeSettings: React.FC = () => {
 
               {/* 底部渐变遮罩与名称、编辑按钮 / Bottom gradient overlay with name and edit button */}
               <div className='absolute bottom-0 start-0 end-0 h-1/3 bg-gradient-to-t from-black/60 to-transparent flex items-end justify-between p-8px'>
-                <span className='text-13px text-white truncate flex-1'>{theme.name}{theme.cover ? ' (WP)' : ''}</span>
+                <span className='text-13px text-white truncate flex-1'>
+                  {theme.name}
+                  {theme.cover && !theme.builtin ? ' (WP)' : ''}
+                </span>
                 {/* 编辑按钮（仅用户主题） / Edit button (user themes only) */}
                 {hoveredThemeId === theme.id && !theme.builtin && (
                   <div
@@ -496,7 +499,7 @@ const CssThemeSettings: React.FC = () => {
               </div>
 
               {/* 壁纸标识 / Wallpaper badge (themes that inject a cover image) */}
-              {theme.cover && (
+              {theme.cover && !theme.builtin && (
                 <div className='absolute top-4px start-4px z-10 flex items-center justify-center bg-black/50 text-white text-xs px-8px py-2px rounded-full'>
                   WP
                 </div>

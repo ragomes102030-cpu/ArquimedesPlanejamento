@@ -19,6 +19,7 @@ import type {
   CreateKanbanBoardInput,
   CreateKanbanCardInput,
   CreateKanbanColumnInput,
+  CreateKanbanDailyLogInput,
   CreateKanbanRoleInput,
   DispatchKanbanCardInput,
   KanbanListOptions,
@@ -33,6 +34,7 @@ import {
   createKanbanBoard,
   createKanbanCard,
   createKanbanColumn,
+  createKanbanDailyLog,
   createKanbanRole,
   deleteKanbanBoard,
   deleteKanbanColumn,
@@ -40,6 +42,7 @@ import {
   dispatchKanbanCard,
   ensureKanbanSchema,
   listKanbanBoards,
+  listKanbanDailyLogs,
   moveKanbanCard,
   updateKanbanBoard,
   updateKanbanCard,
@@ -79,6 +82,8 @@ const KANBAN_CHANNELS = [
   'kanban:role:delete',
   'kanban:card:create',
   'kanban:card:update',
+  'kanban:card:daily-logs:list',
+  'kanban:card:daily-logs:create',
   'kanban:card:move',
   'kanban:card:dispatch',
   'kanban:column:create',
@@ -159,6 +164,10 @@ export function startTaskService(options: TaskServiceOptions): TaskServiceHandle
   ipcMain.handle('kanban:role:delete', (_event, id: string) => deleteKanbanRole(db, id));
   ipcMain.handle('kanban:card:create', (_event, input: CreateKanbanCardInput) => createKanbanCard(db, input));
   ipcMain.handle('kanban:card:update', (_event, input: UpdateKanbanCardInput) => updateKanbanCard(db, input));
+  ipcMain.handle('kanban:card:daily-logs:list', (_event, cardId: string) => listKanbanDailyLogs(db, cardId));
+  ipcMain.handle('kanban:card:daily-logs:create', (_event, input: CreateKanbanDailyLogInput) =>
+    createKanbanDailyLog(db, input)
+  );
   ipcMain.handle('kanban:card:move', (_event, input: MoveKanbanCardInput) => moveKanbanCard(db, input));
   ipcMain.handle('kanban:card:dispatch', (_event, input: DispatchKanbanCardInput) => {
     const result = dispatchKanbanCard(db, { ...input, workspace_root: options.defaultWorkspace });

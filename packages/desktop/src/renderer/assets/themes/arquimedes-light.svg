@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" fill="none">
+  <defs>
+    <linearGradient id="paper" x1="0" y1="0" x2="640" y2="360" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F7F5EF"/>
+      <stop offset="1" stop-color="#E9E5DA"/>
+    </linearGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" stroke="#C9C4B7" stroke-opacity=".42"/>
+    </pattern>
+  </defs>
+  <path fill="url(#paper)" d="M0 0h640v360H0z"/>
+  <path fill="url(#grid)" d="M0 0h640v360H0z"/>
+  <path d="M360 0v360M480 0v360M0 236h640" stroke="#506878" stroke-opacity=".16"/>
+  <g stroke="#18384A" stroke-linecap="round" stroke-linejoin="round">
+    <path d="m356 74 126 36v118l-126-36V74Z" stroke-width="3"/>
+    <path d="m356 74 66-39 126 35-66 40-126-36Z" fill="#F7F5EF" stroke-width="3"/>
+    <path d="M422 109v119m60-118v118m-126-80 126 36M356 186l126 36" stroke-width="2"/>
+    <path d="m398 97 64 18m-64 8 64 18m-64 8 64 18" stroke-width="2"/>
+    <path d="M60 252h170M76 269h132" stroke-width="2" opacity=".45"/>
+  </g>
+  <g transform="translate(82 82)">
+    <circle cx="64" cy="48" r="26" fill="#E88932"/>
+    <circle cx="64" cy="48" r="8" fill="#18384A"/>
+    <path d="M58 71 31 151m39-80 27 80" stroke="#18384A" stroke-width="10" stroke-linecap="round"/>
+    <path d="M29 158h71m-71-9v18m71-18v18" stroke="#28A8B5" stroke-width="6" stroke-linecap="round"/>
+    <path d="M64 16V4m-48 44H4m108 0h-12" stroke="#18384A" stroke-width="2" opacity=".55"/>
+  </g>
+  <path d="M540 278h40m-20-20v40" stroke="#E88932" stroke-width="3" stroke-linecap="round"/>
+  <text x="44" y="325" fill="#18384A" font-family="Segoe UI, sans-serif" font-size="16" font-weight="700" letter-spacing="3">ARQUIMEDES · ENGENHARIA</text>
+</svg>

@@ -16,12 +16,26 @@ metadata:
   domain: civil-engineering
   specialization: orchestration
   routes_to: [structuro-agent, topobot-agent, pathoscan-agent, chronos-agent, docbuild-agent]
+  related_skills:
+    - budget-composition-service
+    - cost-estimation-resource
+    - lob-line-of-balance
+    - production-measurement-control
+    - planejamento-obras-engenharia
+    - spreadsheet-audit
+    - spreadsheet-qa
+    - delivery-gate
+    - eap-work-breakdown
+    - suprimentos-obras
+    - seguranca-obra
+    - gestao-qualidade-obras
 ---
 
 # CivilTutor — orquestrador de engenharia civil
 
-Recebe a tarefa, classifica a disciplina, delega ao especialista, agrega o
-resultado e devolve **um** relatório. Nunca responde no lugar do especialista.
+Recebe a tarefa, classifica a disciplina, encaminha para um runtime disponível ou
+aplica a skill de domínio correspondente, agrega o resultado e devolve **um**
+relatório. Nunca apresenta uma skill como se fosse um agente independente.
 
 ## When to Use
 
@@ -43,14 +57,22 @@ Do NOT use for:
 | levantamento, GNSS, cota, curva de nível, volume, DXF, UTM | `topobot-agent` | "calcula o volume de corte" |
 | fissura, umidade, corrosão, infiltração, patologia, NBR 9077 | `pathoscan-agent` | "essa trinca é estrutural?" |
 | cronograma, prazo, caminho crítico, produtividade, curva S | `chronos-agent` | "quanto tempo leva?" |
-| orçamento, BDI, SINAPI, memorial, especificação, NBR 15575 | `docbuild-agent` | "quanto custa?" |
+| orçamento, BDI, SINAPI, composição de preço | `docbuild-agent` + `budget-composition-service` / `cost-estimation-resource` | "quanto custa?" |
+| ritmo de produção, frentes repetitivas, LOB, balanceamento | `chronos-agent` + `lob-line-of-balance` | "como manter as equipes no ritmo?" |
+| medição, avanço executado, boletim | `production-measurement-control` | "confere esta medição?" |
+| auditoria de planilha, cronograma ou cálculo | `planejamento-obras-engenharia` + `spreadsheet-audit` / `spreadsheet-qa` / `delivery-gate` | "audite este orçamento" |
+| memorial, especificação, documentos técnicos | `docbuild-agent` | "monte o memorial da obra" |
+| EAP, escopo, pacote de trabalho, projeto da obra | `eap-work-breakdown`; estrutural → `structuro-agent`; documento técnico → `docbuild-agent` | "organize os pacotes do projeto" |
+| cotação, compra, fornecedor, prazo de entrega, suprimentos | `suprimentos-obras` | "compare estas propostas" |
+| risco de acidente, APR, EPI, NR-18, segurança do canteiro | `seguranca-obra` | "revise este checklist de segurança" |
+| inspeção, ensaio, recebimento, não conformidade, qualidade | `gestao-qualidade-obras` | "prepare a inspeção do concreto" |
 | **dois ou mais acima** | rotear **em sequência**, não em paralelo | "orça e agenda" |
 
 ## Workflow
 
 1. **Classifique.** Extraia o sinal da tabela. Se ambíguo, pergunte **uma** vez
    qual disciplina — não chute.
-2. **Delegue.** Uma chamada por especialista, com `delegate_task`.
+2. **Delegue.** Use `delegate_task` apenas para agentes runtime realmente disponíveis. Para um domínio coberto somente por skill, aplique as instruções da skill correspondente; não apresente isso como agente independente.
 3. **Verifique o retorno.** O especialista trouxe o cálculo **e** a premissa?
    Sem premissa, o número não vale — devolva pedindo.
 4. **Agregue.** Um relatório, sem repetir o texto do especialista.
@@ -67,8 +89,14 @@ Do NOT use for:
 - **Falta de premissa é bloqueio.** "A viga aguenta" sem dizer o vão, a carga e o
   fck é resposta inválida. Peça o dado que falta.
 - **Número sem unidade não é número.** Sempre unidade e data-base.
-- **Não invente especialista.** Se a tarefa não é de nenhum dos cinco, diga isso —
-  não force um roteamento.
+- **Skill não é runtime.** Orçamento, medição, auditoria, suprimentos, segurança e
+  qualidade têm skills de domínio, mas isso não significa que exista um agente
+  separado instalado. Confirme a disponibilidade antes de prometer delegação.
+- **Segurança e qualidade exigem validação humana.** Não emita liberação de
+  serviço, certificação de conformidade ou aprovação de compra em nome do
+  responsável técnico.
+- **Não invente especialista.** Se a tarefa não se encaixa nos agentes ou skills
+  existentes, explique o limite e peça os dados ou o profissional adequado.
 
 ## Examples
 

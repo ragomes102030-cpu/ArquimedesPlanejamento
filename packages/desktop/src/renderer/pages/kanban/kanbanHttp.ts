@@ -2,6 +2,7 @@ import type {
   CreateKanbanBoardInput,
   CreateKanbanCardInput,
   CreateKanbanColumnInput,
+  CreateKanbanDailyLogInput,
   CreateKanbanRoleInput,
   DeleteKanbanBoardInput,
   DeleteKanbanBoardResult,
@@ -13,6 +14,7 @@ import type {
   KanbanBoard,
   KanbanCard,
   KanbanColumn,
+  KanbanDailyLog,
   KanbanListOptions,
   KanbanRole,
   MoveKanbanCardInput,
@@ -53,6 +55,14 @@ export const kanbanHttpApi: KanbanAPI = {
 
   updateCard: (input: UpdateKanbanCardInput) =>
     request<KanbanCard>('/card', { method: 'PATCH', body: JSON.stringify(input) }),
+
+  listDailyLogs: (cardId: string) => request<KanbanDailyLog[]>(`/card/${encodeURIComponent(cardId)}/daily-logs`),
+
+  createDailyLog: ({ card_id, ...input }: CreateKanbanDailyLogInput) =>
+    request<KanbanDailyLog>(`/card/${encodeURIComponent(card_id)}/daily-logs`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
 
   moveCard: (input: MoveKanbanCardInput) =>
     request<KanbanCard>('/card/move', { method: 'PATCH', body: JSON.stringify(input) }),

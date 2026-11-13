@@ -8,7 +8,7 @@ import Database from 'better-sqlite3';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import jwt, { JwtPayload } from 'jsonwebtoken';
+import jwt, { type JwtPayload } from 'jsonwebtoken';
 import type { HostRouteHandler } from '@aionui/web-host';
 
 /** Cookie name for the access-token session, mirroring aionui-auth::COOKIE_NAME. */
@@ -18,6 +18,8 @@ const JWT_AUDIENCE = 'aionui-webui';
 
 import {
   createKanbanCard,
+  createKanbanDailyLog,
+  listKanbanDailyLogs,
   listKanbanBoards,
   moveKanbanCard,
   updateKanbanCard,
@@ -25,6 +27,7 @@ import {
   type KanbanDatabase,
 } from './kanbanRepository';
 import { ensureTaskSchema } from './taskRepository';
+import type { CreateKanbanDailyLogInput } from '@/common/kanban/kanbanTypes';
 
 const PREFIX = '/api/kanban';
 /** A card payload is small; anything larger is a client bug, not a real request. */
@@ -195,6 +198,20 @@ export function createKanbanHostRoutes(
       if (route === '/card' && method === 'PATCH') {
         const input = JSON.parse((await readBody(req)) || '{}');
         sendJson(res, 200, { data: updateKanbanCard(db, input) });
+        return true;
+      }
+
+      const dailyLogsMatch = route.match(/^\/card\/([^/]+)\/daily-logs$/);
+      if (dailyLogsMatch && method === 'GET') {
+        const cardId = decodeURIComponent(dailyLogsMatch[1]);
+        sendJson(res, 200, { data: listKanbanDailyLogs(db, cardId) });
+        return true;
+      }
+
+      if (dailyLogsMatch && method === 'POST') {
+        const cardId = decodeURIComponent(dailyLogsMatch[1]);
+        const input = JSON.parse((await readBody(req)) || '{}') as Omit<CreateKanbanDailyLogInput, 'card_id'>;
+        sendJson(res, 200, { data: createKanbanDailyLog(db, { ...input, card_id: cardId }) });
         return true;
       }
 

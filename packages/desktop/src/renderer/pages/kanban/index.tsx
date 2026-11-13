@@ -15,6 +15,7 @@ import {
   Dropdown,
   Empty,
   Input,
+  InputNumber,
   Menu,
   Message,
   Modal,
@@ -31,11 +32,14 @@ import type { Task } from '@/common/task/taskTypes';
 import type { Assistant } from '@/common/types/agent/assistantTypes';
 import {
   deriveScheduleStatus,
+  isProductionProjectedLate,
   type CreateKanbanCardInput,
+  type CreateKanbanDailyLogInput,
   type KanbanAutomationPlan,
   type KanbanBoard,
   type KanbanCard,
   type KanbanColumn,
+  type KanbanDailyLog,
   type KanbanPriority,
   type KanbanReasonCode,
   KANBAN_REASON_CODES,
@@ -46,19 +50,23 @@ import {
 import { useAssistantList } from '@renderer/hooks/assistant/useAssistantList';
 import { selectableAssistants } from '@renderer/utils/model/assistantSelection';
 import { BoardAutomationModal } from './BoardAutomationModal';
+import { DailyLogSection } from './DailyLogSection';
 import { buildDispatchMission } from './boardAutomation';
 import { useKanban } from './useKanban';
 
 // Helper functions for EVM (Earned Value Management) calculations
 // Using duration as a proxy for cost when actual cost data is not available
-function calculateEVMDurations(card: KanbanCard, now: number): { 
-  ev: number; 
-  pv: number; 
-  ac: number; 
-  sv: number; 
-  cv: number; 
-  spi: number; 
-  cpi: number 
+function calculateEVMDurations(
+  card: KanbanCard,
+  now: number
+): {
+  ev: number;
+  pv: number;
+  ac: number;
+  sv: number;
+  cv: number;
+  spi: number;
+  cpi: number;
 } {
   // If the card doesn't have scheduling information, return zeros
   if (!card.scheduled_for) {
@@ -69,9 +77,9 @@ function calculateEVMDurations(card: KanbanCard, now: number): {
   const plannedStart = card.start_for ?? scheduledStart;
   const actualStart = card.started_at ?? null;
   const actualFinish = card.finished_at ?? null;
-  
+
   // Planned duration (in days) - using a reasonable default if not specified
-  // For simplicity, we'll use the time between scheduled_for and (scheduled_for + 8 hours) 
+  // For simplicity, we'll use the time between scheduled_for and (scheduled_for + 8 hours)
   // as the planned duration for a task, or use start_for - scheduled_for if available
   let plannedDurationMs: number;
   if (card.start_for !== null && card.start_for > card.scheduled_for) {
@@ -81,7 +89,7 @@ function calculateEVMDurations(card: KanbanCard, now: number): {
     plannedDurationMs = 8 * 60 * 60 * 1000;
   }
   const plannedDurationDays = Math.max(0.1, plannedDurationMs / (24 * 60 * 60 * 1000)); // Avoid division by zero
-  
+
   // Calculate PV (Planned Value) - budgeted cost for work scheduled
   // Using time elapsed as proxy for planned value accumulation
   let pv = 0;
@@ -89,7 +97,7 @@ function calculateEVMDurations(card: KanbanCard, now: number): {
     const elapsedDays = Math.min(plannedDurationDays, (now - scheduledStart) / (24 * 60 * 60 * 1000));
     pv = (elapsedDays / plannedDurationDays) * 100; // As percentage of total planned value
   }
-  
+
   // Calculate EV (Earned Value) - budgeted cost for work performed
   // Using actual progress as proxy for earned value
   let ev = 0;
@@ -105,7 +113,7 @@ function calculateEVMDurations(card: KanbanCard, now: number): {
       ev = Math.min(100, (elapsedDaysSinceStart / plannedDurationDays) * 100); // Cap at 100%
     }
   }
-  
+
   // Calculate AC (Actual Cost) - actual cost incurred
   // Using actual time spent as proxy for actual cost
   let ac = 0;
@@ -114,15 +122,15 @@ function calculateEVMDurations(card: KanbanCard, now: number): {
     const actualDurationDays = Math.max(0, actualDurationMs / (24 * 60 * 60 * 1000));
     ac = Math.min(100, (actualDurationDays / plannedDurationDays) * 100); // Cap at 100%
   }
-  
+
   // Calculate variances
   const sv = ev - pv; // Schedule Variance (negative = behind schedule)
   const cv = ev - ac; // Cost Variance (negative = over budget)
-  
+
   // Calculate performance indices
   const spi = pv !== 0 ? ev / pv : 0; // Schedule Performance Index
   const cpi = ac !== 0 ? ev / ac : 0; // Cost Performance Index
-  
+
   return { ev, pv, ac, sv, cv, spi, cpi };
 }
 
@@ -139,7 +147,6 @@ function getEVMScheduleStatusColor(sv: number): string {
   if (sv >= -10) return 'orange'; // 5-10% behind
   return 'red'; // more than 10% behind
 }
-
 
 const BUILTIN_COLUMN_KEYS = new Set(['triage', 'todo', 'scheduled', 'ready', 'running', 'review', 'done', 'blocked']);
 
@@ -166,6 +173,8 @@ type CardDraft = {
   startFor: number | null;
   assignee: string;
   reasonCode: KanbanReasonCode | null;
+  plannedQuantity: number | null;
+  quantityUnit: string;
 };
 
 type RoleDraft = {
@@ -226,6 +235,10 @@ function formatScheduleTime(timestamp: number, t: ReturnType<typeof useTranslati
   });
 }
 
+function formatProductionQuantity(value: number): string {
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value);
+}
+
 /**
  * Ticks so a card crosses into `overdue` on its own. The board is often left
  * open for hours, and a service that quietly became late must not wait for a
@@ -274,6 +287,7 @@ function KanbanCardView({
   dispatching: boolean;
 }) {
   const scheduleStatus = deriveScheduleStatus(card, columns, now);
+  const productionAtRisk = isProductionProjectedLate(card, now);
 
   const { sv, cv, spi, cpi } = calculateEVMDurations(card, now);
   const isOverdue = scheduleStatus === 'overdue';
@@ -302,6 +316,30 @@ function KanbanCardView({
       </div>
       {card.description ? (
         <p className='mt-6px line-clamp-3 text-12px leading-17px text-t-secondary'>{card.description}</p>
+      ) : null}
+      {card.production_summary && (card.planned_quantity !== null || card.production_summary.total_quantity > 0) ? (
+        <div className='mt-8px flex flex-wrap items-center gap-5px'>
+          <Tag size='small' color='arcoblue' className='shrink-0'>
+            {t('agentTasks.kanban.dailyLog.executed')}:{' '}
+            {formatProductionQuantity(card.production_summary.total_quantity)}
+            {card.quantity_unit ? ` ${card.quantity_unit}` : ''}
+            {card.planned_quantity !== null
+              ? ` / ${formatProductionQuantity(card.planned_quantity)}${card.quantity_unit ? ` ${card.quantity_unit}` : ''}`
+              : ''}
+          </Tag>
+          {card.production_summary.progress_percent !== null ? (
+            <Tag size='small' color={card.production_summary.progress_percent >= 100 ? 'green' : 'blue'}>
+              {formatProductionQuantity(card.production_summary.progress_percent)}%
+            </Tag>
+          ) : null}
+          {productionAtRisk ? (
+            <Tooltip content={t('agentTasks.kanban.dailyLog.paceRiskTooltip')}>
+              <Tag size='small' color='red' className='shrink-0'>
+                {t('agentTasks.kanban.dailyLog.paceRisk')}
+              </Tag>
+            </Tooltip>
+          ) : null}
+        </div>
       ) : null}
       {card.scheduled_for !== null ||
       card.start_for !== null ||
@@ -793,6 +831,8 @@ function CardEditorModal({
   onClose,
   onSave,
   onArchive,
+  onListDailyLogs,
+  onCreateDailyLog,
 }: {
   visible: boolean;
   card: KanbanCard | null;
@@ -802,6 +842,8 @@ function CardEditorModal({
   onClose: () => void;
   onSave: (input: CreateKanbanCardInput | UpdateKanbanCardInput) => Promise<void>;
   onArchive: (card: KanbanCard) => Promise<void>;
+  onListDailyLogs: (cardId: string) => Promise<KanbanDailyLog[]>;
+  onCreateDailyLog: (input: CreateKanbanDailyLogInput) => Promise<KanbanDailyLog>;
 }) {
   const [draft, setDraft] = useState<CardDraft>({
     title: '',
@@ -813,6 +855,8 @@ function CardEditorModal({
     startFor: null,
     assignee: '',
     reasonCode: null,
+    plannedQuantity: null,
+    quantityUnit: '',
   });
   const [saving, setSaving] = useState(false);
 
@@ -847,6 +891,8 @@ function CardEditorModal({
       startFor: card?.start_for ?? null,
       assignee: card?.assignee ?? '',
       reasonCode: card?.reason_code ?? null,
+      plannedQuantity: card?.planned_quantity ?? null,
+      quantityUnit: card?.quantity_unit ?? '',
     });
   }, [card, roles, visible]);
 
@@ -891,6 +937,8 @@ function CardEditorModal({
               start_for: draft.startFor,
               assignee: draft.assignee,
               reason_code: draft.reasonCode,
+              planned_quantity: draft.plannedQuantity,
+              quantity_unit: draft.quantityUnit || null,
             }
           : {
               board_id: board.id,
@@ -903,6 +951,8 @@ function CardEditorModal({
               scheduled_for: draft.scheduledFor,
               start_for: draft.startFor,
               assignee: draft.assignee,
+              planned_quantity: draft.plannedQuantity,
+              quantity_unit: draft.quantityUnit || null,
             }
       );
       onClose();
@@ -956,9 +1006,7 @@ function CardEditorModal({
             value={draft.startFor ? dayjs(draft.startFor) : null}
             shortcuts={DATE_PICKER_SHORTCUTS}
             allowClear
-            onChange={(_text, date) =>
-              setDraft((prev) => ({ ...prev, startFor: date ? date.valueOf() : null }))
-            }
+            onChange={(_text, date) => setDraft((prev) => ({ ...prev, startFor: date ? date.valueOf() : null }))}
           />
         </div>
         <div>
@@ -971,9 +1019,7 @@ function CardEditorModal({
             value={draft.scheduledFor ? dayjs(draft.scheduledFor) : null}
             shortcuts={DATE_PICKER_SHORTCUTS}
             allowClear
-            onChange={(_text, date) =>
-              setDraft((prev) => ({ ...prev, scheduledFor: date ? date.valueOf() : null }))
-            }
+            onChange={(_text, date) => setDraft((prev) => ({ ...prev, scheduledFor: date ? date.valueOf() : null }))}
           />
         </div>
         <div>
@@ -985,6 +1031,30 @@ function CardEditorModal({
             placeholder={t('agentTasks.kanban.fieldCrewPlaceholder', { defaultValue: 'Zezinho e Luizinho' })}
             onChange={(value) => setDraft((prev) => ({ ...prev, assignee: value }))}
           />
+        </div>
+        <div className='grid grid-cols-2 gap-8px'>
+          <div>
+            <label className='mb-6px block text-12px text-t-secondary'>
+              {t('agentTasks.kanban.dailyLog.plannedQuantity')}
+            </label>
+            <InputNumber
+              className='w-full'
+              min={0}
+              precision={3}
+              value={draft.plannedQuantity ?? undefined}
+              onChange={(value) =>
+                setDraft((prev) => ({ ...prev, plannedQuantity: typeof value === 'number' ? value : null }))
+              }
+            />
+          </div>
+          <div>
+            <label className='mb-6px block text-12px text-t-secondary'>{t('agentTasks.kanban.dailyLog.unit')}</label>
+            <Input
+              value={draft.quantityUnit}
+              placeholder={t('agentTasks.kanban.dailyLog.unitPlaceholder')}
+              onChange={(value) => setDraft((prev) => ({ ...prev, quantityUnit: value }))}
+            />
+          </div>
         </div>
         <div>
           <label className='mb-6px block text-12px text-t-secondary'>
@@ -1031,9 +1101,7 @@ function CardEditorModal({
                 style={{ width: 200 }}
                 value={card.started_at ? dayjs(card.started_at) : null}
                 allowClear
-                onChange={(_text, date) =>
-                  void recordReceipt({ started_at: date ? date.valueOf() : null })
-                }
+                onChange={(_text, date) => void recordReceipt({ started_at: date ? date.valueOf() : null })}
               />
               <label className='mb-0 block text-11px text-t-secondary shrink-0'>
                 {t('agentTasks.kanban.finishedAtLabel', { defaultValue: 'Término real' })}
@@ -1042,9 +1110,7 @@ function CardEditorModal({
                 style={{ width: 200 }}
                 value={card.finished_at ? dayjs(card.finished_at) : null}
                 allowClear
-                onChange={(_text, date) =>
-                  void recordReceipt({ finished_at: date ? date.valueOf() : null })
-                }
+                onChange={(_text, date) => void recordReceipt({ finished_at: date ? date.valueOf() : null })}
               />
             </div>
             <div className='flex flex-wrap items-center gap-8px mt-6px'>
@@ -1059,6 +1125,9 @@ function CardEditorModal({
               />
             </div>
           </div>
+        ) : null}
+        {card ? (
+          <DailyLogSection visible={visible} card={card} onList={onListDailyLogs} onCreate={onCreateDailyLog} />
         ) : null}
         <div className='grid grid-cols-2 gap-10px'>
           <div>
@@ -1274,6 +1343,8 @@ const KanbanPage: React.FC = () => {
     deleteBoard,
     createCard,
     updateCard,
+    listDailyLogs,
+    createDailyLog,
     moveCard,
     dispatchCard: dispatchKanbanCard,
     createRole,
@@ -1532,11 +1603,24 @@ const KanbanPage: React.FC = () => {
 
   const confirmDeleteBoard = async () => {
     if (!deleteBoardTarget) return;
-    await deleteBoard(deleteBoardTarget.id);
-    setDeleteBoardVisible(false);
-    setDeleteBoardTarget(null);
-    setSelectedBoardId(null);
-    Message.success(t('agentTasks.kanban.boardDeleted', { defaultValue: 'Board deleted' }));
+    try {
+      await deleteBoard(deleteBoardTarget.id);
+      setDeleteBoardVisible(false);
+      setDeleteBoardTarget(null);
+      setSelectedBoardId(null);
+      Message.success(t('agentTasks.kanban.boardDeleted', { defaultValue: 'Board deleted' }));
+    } catch (deleteError) {
+      console.error('[Kanban] Failed to delete board:', deleteError);
+      const deleteMessage = deleteError instanceof Error ? deleteError.message : String(deleteError);
+      const hasFieldEntries = deleteMessage.includes('field entries');
+      Message.error(
+        hasFieldEntries
+          ? t('agentTasks.kanban.boardDeleteHasLogs', {
+              defaultValue: 'This board has field entries. Archive it instead to preserve the field history.',
+            })
+          : t('agentTasks.kanban.boardDeleteFailed', { defaultValue: 'Could not delete the board.' })
+      );
+    }
   };
 
   const applyAutomationPlan = async (plan: KanbanAutomationPlan) => {
@@ -1743,9 +1827,7 @@ const KanbanPage: React.FC = () => {
             size='small'
             className='ms-auto shrink-0'
             value={focus}
-            onChange={(value) =>
-              setFocus(value as 'all' | 'due_soon' | 'overdue' | 'start_overdue')
-            }
+            onChange={(value) => setFocus(value as 'all' | 'due_soon' | 'overdue' | 'start_overdue')}
           >
             <Radio value='all'>{t('agentTasks.kanban.filterAll', { defaultValue: 'Todos' })}</Radio>
             <Radio value='due_soon'>
@@ -1757,7 +1839,8 @@ const KanbanPage: React.FC = () => {
             <Radio value='start_overdue'>
               {t('agentTasks.kanban.onlyStartOverdue', {
                 defaultValue: 'Início atrasado',
-              })} ({startOverdueCardIds.size})
+              })}{' '}
+              ({startOverdueCardIds.size})
             </Radio>
           </Radio.Group>
           <Checkbox checked={showArchived} onChange={setShowArchived} className='shrink-0'>
@@ -1857,6 +1940,8 @@ const KanbanPage: React.FC = () => {
             onClose={() => setCardEditorVisible(false)}
             onSave={saveCard}
             onArchive={archiveCard}
+            onListDailyLogs={listDailyLogs}
+            onCreateDailyLog={createDailyLog}
           />
           <DispatchCardModal
             visible={dispatchModalVisible}

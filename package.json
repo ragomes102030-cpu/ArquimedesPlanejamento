@@ -84,7 +84,7 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.18.2",
-    "@aionui/web-host": "file:../web-host",
+    "@aionui/web-host": "workspace:*",
     "@anthropic-ai/sdk": "^0.71.2",
     "@arco-design/web-react": "^2.66.1",
     "@aws-sdk/client-bedrock": "^3.987.0",
@@ -121,7 +121,7 @@
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^12.4.1",
     "buffer": "^6.0.3",
-    "builder-util-runtime": "9.5.1",
+    "builder-util-runtime": "9.7.0",
     "classnames": "^2.5.1",
     "cookie": "^1.0.2",
     "cookie-parser": "^1.4.7",

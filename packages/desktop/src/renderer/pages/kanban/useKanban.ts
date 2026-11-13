@@ -4,12 +4,14 @@ import type {
   CreateKanbanBoardInput,
   CreateKanbanCardInput,
   CreateKanbanColumnInput,
+  CreateKanbanDailyLogInput,
   CreateKanbanRoleInput,
   DispatchKanbanCardInput,
   KanbanAPI,
   KanbanBoard,
   KanbanCard,
   KanbanColumn,
+  KanbanDailyLog,
   KanbanRole,
   MoveKanbanCardInput,
   UpdateKanbanBoardInput,
@@ -117,6 +119,16 @@ export function useKanban() {
     [mutate]
   );
 
+  const listDailyLogs = useCallback(
+    (cardId: string): Promise<KanbanDailyLog[]> => resolveApi().listDailyLogs(cardId),
+    []
+  );
+
+  const createDailyLog = useCallback(
+    (input: CreateKanbanDailyLogInput): Promise<KanbanDailyLog> => resolveApi().createDailyLog(input),
+    []
+  );
+
   const moveCard = useCallback(
     async (input: MoveKanbanCardInput) => {
       const result = await resolveApi().moveCard(input);
@@ -176,6 +188,8 @@ export function useKanban() {
     deleteRole,
     createCard,
     updateCard,
+    listDailyLogs,
+    createDailyLog,
     moveCard,
     dispatchCard,
     createColumn,

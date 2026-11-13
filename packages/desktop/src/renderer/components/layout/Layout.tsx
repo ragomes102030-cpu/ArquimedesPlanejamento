@@ -144,7 +144,7 @@ const Layout: React.FC<{
     return () => setGlobalNavigate(null);
   }, [navigate]);
   const { t } = useTranslation();
-  // The "AionUi" wordmark acts as Home / Back-to-Chat, but only from settings routes.
+  // The Arquimedes wordmark acts as Home / Back-to-Chat, but only from settings routes.
   // In non-settings routes the user is already "home", so it is a no-op (and not actionable).
   const isSettingsRoute = location.pathname.startsWith('/settings');
   // Only wired to the wordmark in the isSettingsRoute branch below, so the
@@ -408,23 +408,23 @@ const Layout: React.FC<{
                     className={classNames('w-5.5 h-5.5 absolute inset-0 m-auto', {
                       'scale-140': !collapsed,
                     })}
-                    viewBox='0 0 80 80'
+                    viewBox='0 0 512 512'
                     fill='none'
                   >
-                    <path
-                      key='logo-path-1'
-                      d='M40 20 Q38 22 25 40 Q23 42 26 42 L30 42 Q32 40 40 30 Q48 40 50 42 L54 42 Q57 42 55 40 Q42 22 40 20'
-                      fill='white'
-                    ></path>
-                    <circle key='logo-circle' cx='40' cy='46' r='3' fill='white'></circle>
-                    <path
-                      key='logo-path-2'
-                      d='M18 50 Q40 70 62 50'
-                      stroke='white'
-                      strokeWidth='3.5'
-                      fill='none'
-                      strokeLinecap='round'
-                    ></path>
+                    <g stroke='white' strokeWidth='26' strokeLinecap='round'>
+                      <path d='M256 104 L176 366'></path>
+                      <path d='M256 104 L336 366'></path>
+                    </g>
+                    <circle cx='256' cy='104' r='40' fill='white'></circle>
+                    <g stroke='white' strokeWidth='9' opacity='0.9'>
+                      <path d='M176 372V420'></path>
+                      <path d='M336 372V420'></path>
+                    </g>
+                    <g stroke='white' strokeWidth='14' strokeLinecap='round'>
+                      <path d='M176 420H336'></path>
+                      <path d='M176 396V444'></path>
+                      <path d='M336 396V444'></path>
+                    </g>
                   </svg>
                 </div>
                 {isSettingsRoute ? (

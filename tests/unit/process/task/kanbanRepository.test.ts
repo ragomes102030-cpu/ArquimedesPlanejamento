@@ -1,13 +1,22 @@
 import BetterSqlite3 from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { deriveScheduleStatus, effectiveDeadline, isCardAtRisk, rankByImpact } from '@/common/kanban/kanbanTypes';
+import {
+  deriveScheduleStatus,
+  effectiveDeadline,
+  isCardAtRisk,
+  isProductionProjectedLate,
+  rankByImpact,
+  summarizeKanbanProduction,
+} from '@/common/kanban/kanbanTypes';
 import {
   createKanbanCard,
+  createKanbanDailyLog,
   createKanbanRole,
   deleteKanbanBoard,
   dispatchKanbanCard,
   ensureKanbanSchema,
   listKanbanBoards,
+  listKanbanDailyLogs,
   moveKanbanCard,
   setKanbanCardDependencies,
   updateKanbanBoard,
@@ -54,6 +63,27 @@ describe('kanbanRepository', () => {
     expect(result.cards).toBe(1);
     expect(getTask(db, dispatched.task.id)?.id).toBe(dispatched.task.id);
     expect(listKanbanBoards(db)).toHaveLength(1);
+  });
+
+  it('prevents deleting a board that contains immutable field entries', () => {
+    const board = listKanbanBoards(db)[0];
+    const card = createKanbanCard(db, {
+      board_id: board.id,
+      column_id: board.columns[0].id,
+      title: 'Field history',
+      planned_quantity: 10,
+      quantity_unit: 'm²',
+    });
+    createKanbanDailyLog(db, {
+      card_id: card.id,
+      idempotency_key: 'preserve-field-entry',
+      work_date: '2026-11-13',
+      quantity: 2,
+      unit: 'm²',
+    });
+
+    expect(() => deleteKanbanBoard(db, board.id)).toThrow(/archive it instead/i);
+    expect(listKanbanDailyLogs(db, card.id)).toHaveLength(1);
   });
 
   it('persists a local role and card, then dispatches and links one task', () => {
@@ -790,6 +820,166 @@ describe('kanbanRepository', () => {
         workspace_root: '/ws',
       });
       expect(dispatched.task.workspace).toBe('C:/minha-pasta');
+    });
+
+    describe('daily field history', () => {
+      function seedCard() {
+        const board = listKanbanBoards(db)[0];
+        const column = board.columns.find((item) => item.key === 'scheduled')!;
+        return createKanbanCard(db, {
+          board_id: board.id,
+          column_id: column.id,
+          title: 'Assentamento de piso',
+          planned_quantity: 120,
+          quantity_unit: 'm²',
+        });
+      }
+
+      it('persists immutable dated entries and returns them newest first', () => {
+        const card = seedCard();
+        const first = createKanbanDailyLog(db, {
+          card_id: card.id,
+          idempotency_key: 'site-entry-1',
+          work_date: '2026-11-11',
+          quantity: 24,
+          unit: 'm²',
+          crew: 'Equipe A',
+          hours: 7.5,
+          equipment: 'Cortadora',
+          occurrence: 'Serviço executado no bloco A.',
+        });
+        createKanbanDailyLog(db, {
+          card_id: card.id,
+          idempotency_key: 'site-entry-2',
+          work_date: '2026-11-12',
+          quantity: 30,
+          unit: 'm²',
+        });
+
+        const entries = listKanbanDailyLogs(db, card.id);
+        expect(entries[1].id).toBe(first.id);
+        expect(entries[0].id).not.toBe(first.id);
+        const savedCard = listKanbanBoards(db)[0].cards.find((item) => item.id === card.id);
+        expect(savedCard?.production_summary).toMatchObject({
+          total_quantity: 54,
+          quantity_days: 2,
+          average_per_day: 27,
+          remaining_quantity: 66,
+        });
+      });
+
+      it('returns the original row on a retry and rejects a conflicting retry', () => {
+        const card = seedCard();
+        const input = {
+          card_id: card.id,
+          idempotency_key: 'retry-safe',
+          work_date: '2026-11-13',
+          quantity: 12,
+          unit: 'm²',
+        };
+
+        const original = createKanbanDailyLog(db, input);
+        expect(createKanbanDailyLog(db, input).id).toBe(original.id);
+        expect(() => createKanbanDailyLog(db, { ...input, quantity: 13 })).toThrow(/different field entry/i);
+        expect(listKanbanDailyLogs(db, card.id)).toHaveLength(1);
+      });
+
+      it('rejects invalid dates, quantities, and units inconsistent with the service', () => {
+        const card = seedCard();
+        const input = {
+          card_id: card.id,
+          idempotency_key: 'invalid-entry',
+          work_date: '2026-11-13',
+          quantity: 12,
+          unit: 'un',
+        };
+
+        expect(() => createKanbanDailyLog(db, { ...input, work_date: '2026-02-31' })).toThrow(/valid YYYY-MM-DD/);
+        expect(() => createKanbanDailyLog(db, { ...input, quantity: -1, unit: 'm²' })).toThrow(/non-negative/);
+        expect(() => createKanbanDailyLog(db, input)).toThrow(/service unit/);
+      });
+
+      it('summarizes measured days, saldo and production pace without inventing zero days', () => {
+        const logs = [
+          {
+            id: '1',
+            card_id: 'card-1',
+            idempotency_key: '1',
+            work_date: '2026-11-11',
+            location: null,
+            quantity: 20,
+            unit: 'm²',
+            crew: null,
+            hours: null,
+            equipment: null,
+            occurrence: null,
+            created_at: 1,
+          },
+          {
+            id: '2',
+            card_id: 'card-1',
+            idempotency_key: '2',
+            work_date: '2026-11-11',
+            location: null,
+            quantity: 10,
+            unit: 'm²',
+            crew: null,
+            hours: null,
+            equipment: null,
+            occurrence: null,
+            created_at: 2,
+          },
+        ];
+
+        expect(summarizeKanbanProduction(100, logs)).toMatchObject({
+          total_quantity: 30,
+          quantity_days: 1,
+          average_per_day: 30,
+          remaining_quantity: 70,
+          progress_percent: 30,
+          projected_work_days: 70 / 30,
+        });
+      });
+
+      it('flags only production estimates that exceed the remaining working days', () => {
+        const card = seedCard();
+        const monday = new Date(2026, 10, 16, 8).getTime();
+        const friday = new Date(2026, 10, 20, 17).getTime();
+        const scheduled = { ...card, scheduled_for: friday };
+
+        expect(
+          isProductionProjectedLate(
+            {
+              ...scheduled,
+              production_summary: {
+                total_quantity: 0,
+                quantity_days: 1,
+                average_per_day: 10,
+                remaining_quantity: 60,
+                progress_percent: 0,
+                projected_work_days: 6,
+              },
+            },
+            monday
+          )
+        ).toBe(true);
+        expect(
+          isProductionProjectedLate(
+            {
+              ...scheduled,
+              production_summary: {
+                total_quantity: 0,
+                quantity_days: 1,
+                average_per_day: 10,
+                remaining_quantity: 50,
+                progress_percent: 0,
+                projected_work_days: 5,
+              },
+            },
+            monday
+          )
+        ).toBe(false);
+      });
     });
   });
 });

@@ -118,12 +118,107 @@ export type KanbanCard = {
    * recorded.
    */
   blocked_since: number | null;
+  planned_quantity: number | null;
+  quantity_unit: string | null;
+  production_summary?: KanbanProductionSummary;
   created_at: number;
   updated_at: number;
 };
 
 /** A card, plus the ids of the cards that must finish before it can start. */
 export type KanbanCardWithDeps = KanbanCard & { depends_on: string[] };
+
+/** Immutable operational field entry linked to a planned service. */
+export type KanbanDailyLog = {
+  id: string;
+  card_id: string;
+  idempotency_key: string;
+  work_date: string;
+  location: string | null;
+  quantity: number | null;
+  unit: string | null;
+  crew: string | null;
+  hours: number | null;
+  equipment: string | null;
+  occurrence: string | null;
+  created_at: number;
+};
+
+export type CreateKanbanDailyLogInput = {
+  card_id: string;
+  idempotency_key: string;
+  work_date: string;
+  location?: string | null;
+  quantity?: number | null;
+  unit?: string | null;
+  crew?: string | null;
+  hours?: number | null;
+  equipment?: string | null;
+  occurrence?: string | null;
+};
+
+export type KanbanProductionSummary = {
+  total_quantity: number;
+  quantity_days: number;
+  average_per_day: number | null;
+  remaining_quantity: number | null;
+  progress_percent: number | null;
+  projected_work_days: number | null;
+};
+
+/** Summarizes observed production without treating unmeasured days as zero. */
+export function summarizeKanbanProduction(
+  plannedQuantity: number | null,
+  logs: readonly KanbanDailyLog[]
+): KanbanProductionSummary {
+  const measured = logs.filter((log) => log.quantity !== null);
+  const totalQuantity = measured.reduce((total, log) => total + (log.quantity ?? 0), 0);
+  const quantityDays = new Set(measured.map((log) => log.work_date)).size;
+  const averagePerDay = quantityDays > 0 ? totalQuantity / quantityDays : null;
+  const remainingQuantity = plannedQuantity === null ? null : Math.max(0, plannedQuantity - totalQuantity);
+  const progressPercent =
+    plannedQuantity === null || plannedQuantity <= 0 ? null : (totalQuantity / plannedQuantity) * 100;
+
+  return {
+    total_quantity: totalQuantity,
+    quantity_days: quantityDays,
+    average_per_day: averagePerDay,
+    remaining_quantity: remainingQuantity,
+    progress_percent: progressPercent,
+    projected_work_days:
+      remainingQuantity !== null && averagePerDay !== null && averagePerDay > 0
+        ? remainingQuantity / averagePerDay
+        : null,
+  };
+}
+
+/** Flags a service whose observed pace cannot meet its planned working-day deadline. */
+export function isProductionProjectedLate(card: KanbanCard, now: number): boolean {
+  const summary = card.production_summary;
+  if (
+    card.scheduled_for === null ||
+    card.finished_at !== null ||
+    summary?.projected_work_days === null ||
+    summary?.projected_work_days === undefined ||
+    summary.projected_work_days <= 0
+  ) {
+    return false;
+  }
+  const deadline = effectiveDeadline(card.scheduled_for);
+  if (deadline <= now) return false;
+
+  const cursor = new Date(now);
+  cursor.setHours(0, 0, 0, 0);
+  const lastDay = new Date(deadline);
+  lastDay.setHours(0, 0, 0, 0);
+  let availableWorkDays = 0;
+  for (let guard = 0; guard < 366; guard += 1) {
+    if (cursor > lastDay) break;
+    if (isWorkingDay(cursor.getTime())) availableWorkDays += 1;
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return summary.projected_work_days > availableWorkDays;
+}
 
 /**
  * How many hours of warning a service gets before its clock runs out. This is
@@ -495,6 +590,8 @@ export type CreateKanbanCardInput = {
   start_for?: number | null;
   blocked_reason?: KanbanReasonCode | null;
   blocked_since?: number | null;
+  planned_quantity?: number | null;
+  quantity_unit?: string | null;
 };
 
 export type UpdateKanbanCardInput = {
@@ -516,6 +613,8 @@ export type UpdateKanbanCardInput = {
   not_done_reason?: string | null;
   blocked_reason?: KanbanReasonCode | null;
   blocked_since?: number | null;
+  planned_quantity?: number | null;
+  quantity_unit?: string | null;
 };
 
 export type SetKanbanCardDependenciesInput = {
@@ -611,6 +710,8 @@ export type KanbanAPI = {
   deleteRole: (input: DeleteKanbanRoleInput) => Promise<boolean>;
   createCard: (input: CreateKanbanCardInput) => Promise<KanbanCard>;
   updateCard: (input: UpdateKanbanCardInput) => Promise<KanbanCard>;
+  listDailyLogs: (cardId: string) => Promise<KanbanDailyLog[]>;
+  createDailyLog: (input: CreateKanbanDailyLogInput) => Promise<KanbanDailyLog>;
   moveCard: (input: MoveKanbanCardInput) => Promise<KanbanCard>;
   dispatchCard: (input: DispatchKanbanCardInput) => Promise<DispatchKanbanCardResult>;
   createColumn: (input: CreateKanbanColumnInput) => Promise<KanbanColumn>;

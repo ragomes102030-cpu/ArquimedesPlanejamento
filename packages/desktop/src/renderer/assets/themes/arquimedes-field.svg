@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" fill="none">
+  <defs>
+    <linearGradient id="site" x1="0" y1="0" x2="640" y2="360" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#203743"/>
+      <stop offset="1" stop-color="#101D24"/>
+    </linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" stroke="#B6C5BF" stroke-opacity=".14"/>
+    </pattern>
+  </defs>
+  <path fill="url(#site)" d="M0 0h640v360H0z"/>
+  <path fill="url(#grid)" d="M0 0h640v360H0z"/>
+  <path d="M0 278h640" stroke="#B6C5BF" stroke-opacity=".35" stroke-width="2"/>
+  <g stroke="#D8E0D9" stroke-linejoin="round" stroke-width="3">
+    <path d="M361 114h84v164h-84z" fill="#314B57"/>
+    <path d="M445 82h89v196h-89z" fill="#3C5964"/>
+    <path d="M361 114h84l-13-28h-57l-14 28Z" fill="#E88932"/>
+    <path d="M445 82h89l-16-30h-57l-16 30Z" fill="#E88932"/>
+    <path d="M379 137h17v24h-17zm33 0h17v24h-17zm48-30h19v27h-19zm36 0h19v27h-19z" fill="#A9C3BF" stroke="none"/>
+    <path d="M379 177h17v24h-17zm33 0h17v24h-17zm48 0h19v27h-19zm36 0h19v27h-19z" fill="#A9C3BF" stroke="none"/>
+    <path d="M379 217h17v24h-17zm33 0h17v24h-17zm48 0h19v27h-19zm36 0h19v27h-19z" fill="#A9C3BF" stroke="none"/>
+  </g>
+  <g transform="translate(76 77)">
+    <circle cx="67" cy="51" r="31" fill="#E88932"/>
+    <circle cx="67" cy="51" r="9" fill="#14232A"/>
+    <path d="M59 79 31 163m44-84 29 84" stroke="#E5ECE7" stroke-width="11" stroke-linecap="round"/>
+    <path d="M27 171h81m-81-11v22m81-22v22" stroke="#55C7B4" stroke-width="7" stroke-linecap="round"/>
+    <path d="M67 13V0M28 51H13m108 0h-15" stroke="#E5ECE7" stroke-width="2" opacity=".65"/>
+  </g>
+  <g font-family="Segoe UI, sans-serif">
+    <text x="42" y="313" fill="#F3F4EC" font-size="16" font-weight="700" letter-spacing="3">ARQUIMEDES · CAMPO</text>
+    <circle cx="572" cy="314" r="7" fill="#55C7B4"/>
+    <path d="M572 299v-20m0 50v-4m-15-11h-8m38 0h8" stroke="#55C7B4" stroke-width="2"/>
+  </g>
+</svg>

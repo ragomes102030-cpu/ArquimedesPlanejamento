@@ -411,7 +411,17 @@ const main = async () => {
 
     step(5, total, 'Enviando o bump de versao');
     must('git', ['add', 'package.json'], { noShell: true });
-    must('git', ['commit', '-m', `chore: bump version to ${version}`], { noShell: true });
+    must(
+      'git',
+      [
+        'commit',
+        '-m',
+        `chore: bump version to ${version}`,
+        '-m',
+        'Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>',
+      ],
+      { noShell: true }
+    );
     must('git', ['push', 'origin', 'main'], { noShell: true });
     ok(`package.json em ${version} enviado para origin/main`);
 

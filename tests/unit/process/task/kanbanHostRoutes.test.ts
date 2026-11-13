@@ -20,6 +20,7 @@ import {
   createKanbanCard,
   ensureKanbanSchema,
   listKanbanBoards,
+  listKanbanDailyLogs,
   type KanbanDatabase,
 } from '@process/task/kanbanRepository';
 import { ensureTaskSchema } from '@process/task/taskRepository';
@@ -154,12 +155,33 @@ describe('rotas do Kanban servidas pelo desktop para o WebUI', () => {
     expect(listKanbanBoards(db)[0].cards.find((c) => c.id === cardId)!.column_id).toBe(done);
   });
 
-  it('6. ignora o que nao e do Kanban, para o proxy assumir', async () => {
+  it('6. cria e lista apontamentos diários idempotentes', async () => {
+    const input = {
+      idempotency_key: 'webui-entry-1',
+      work_date: '2026-11-13',
+      quantity: 18,
+      unit: 'm²',
+      crew: 'Equipe campo',
+      hours: 8,
+      occurrence: 'Serviço executado no pavimento térreo.',
+    };
+    const created = await call(`/api/kanban/card/${cardId}/daily-logs`, 'POST', input);
+    const duplicate = await call(`/api/kanban/card/${cardId}/daily-logs`, 'POST', input);
+    const listed = await call(`/api/kanban/card/${cardId}/daily-logs`);
+
+    expect(created.status).toBe(200);
+    expect(duplicate.payload.data.id).toBe(created.payload.data.id);
+    expect(listed.payload.data).toHaveLength(1);
+    expect(listed.payload.data[0].occurrence).toBe(input.occurrence);
+    expect(listKanbanDailyLogs(db, cardId)).toHaveLength(1);
+  });
+
+  it('7. ignora o que nao e do Kanban, para o proxy assumir', async () => {
     expect((await call('/api/providers')).handled).toBe(false);
     expect((await call('/api/mcp/servers')).handled).toBe(false);
   });
 
-  it('7. recusa rota do Kanban que nao existe, sem passar 500', async () => {
+  it('8. recusa rota do Kanban que nao existe, sem passar 500', async () => {
     const { handled, status, payload } = await call('/api/kanban/board', 'DELETE');
 
     expect(handled).toBe(true);
@@ -168,7 +190,7 @@ describe('rotas do Kanban servidas pelo desktop para o WebUI', () => {
     expect(payload.code).toBe('NOT_FOUND');
   });
 
-  it('8. corpo invalido vira 400 legivel e nao derruba o servidor', async () => {
+  it('9. corpo invalido vira 400 legivel e nao derruba o servidor', async () => {
     const { res, captured } = fakeRes();
     const handled = await handler(fakeReq('/api/kanban/card', 'PATCH', '{not json'), res);
 
@@ -177,14 +199,14 @@ describe('rotas do Kanban servidas pelo desktop para o WebUI', () => {
     expect(JSON.parse(captured.body).success).toBe(false);
   });
 
-  it('9. cartao inexistente responde 400 legivel', async () => {
+  it('10. cartao inexistente responde 400 legivel', async () => {
     const { status, payload } = await call('/api/kanban/card', 'PATCH', { id: 'card-nao-existe' });
 
     expect(status).toBe(400);
     expect(payload.error).toContain('not found');
   });
 
-  it('10. criar board continua fora do WebUI', async () => {
+  it('11. criar board continua fora do WebUI', async () => {
     // Restructuring the board remains a desktop action.
     const { status, payload } = await call('/api/kanban/board', 'POST', { name: 'novo' });
 
@@ -232,6 +254,12 @@ describe('kanbanHostRoutes sobre o WebUI com allowRemote', () => {
     expect(captured.body).toContain('SESSION_REQUIRED');
     // O board real nao deve estar no corpo.
     expect(captured.body).not.toContain('cards');
+
+    const logsResponse = fakeRes();
+    const logsHandled = await handler2(fakeReq('/api/kanban/card/private-card/daily-logs', 'GET'), logsResponse.res);
+    expect(logsHandled).toBe(true);
+    expect(logsResponse.captured.status).toBe(401);
+    expect(logsResponse.captured.body).not.toContain('daily_logs');
 
     const board = listKanbanBoards(db2)[0];
     const createReq = fakeReq(
