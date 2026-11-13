@@ -38,6 +38,8 @@ on:
 
 env:
   BUN_INSTALL_REGISTRY: 'https://registry.npmjs.org/'
+  # Includes database migration 044, which the published v0.2.2 binary lacks.
+  AIONCORE_SOURCE_REF: 0268ceb03273ffbe884e28b958882c421cbf4f38
   # Pinned AionHub tag for the offline hub fallback bundled into resources/hub.
   # Must exist in iOfficeAI/AionHub; scripts/prepareHubResources.js aborts the
   # build (exit 1) when neither mirror can serve the tag.
@@ -55,6 +57,32 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Checkout compatible AionCore source
+        uses: actions/checkout@v4
+        with:
+          repository: iOfficeAI/AionCore
+          ref: ${{ env.AIONCORE_SOURCE_REF }}
+          path: core-source
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.95.0'
+          targets: x86_64-pc-windows-msvc
+
+      - name: Build compatible AionCore
+        shell: pwsh
+        working-directory: core-source
+        run: |
+          Remove-Item 'C:\Program Files\Git\usr\bin\link.exe' -Force -ErrorAction SilentlyContinue
+          $env:RUSTFLAGS = '-C target-feature=+crt-static'
+          cargo build --release --target x86_64-pc-windows-msvc -p aionui-app
+          $core = 'target\x86_64-pc-windows-msvc\release\aioncore.exe'
+          if (-not (Test-Path $core)) {
+            Write-Error "AionCore binary not found: $core"
+            exit 1
+          }
 
       - name: Point Electron caches at the runner temp dir
         shell: pwsh
@@ -196,8 +224,9 @@ jobs:
           MSVS_VERSION: 2022
           GYP_MSVS_VERSION: 2022
           _WIN32_WINNT: 0x0A00
-          # prepareAioncore() resolves the pinned AionCore release
-          # (package.json > aioncoreVersion) and downloads its asset.
+          # Use the pinned AionCore source built earlier in this job. The
+          # published upstream release predates database migration 44.
+          AIONCORE_BIN_PATH: ${{ github.workspace }}\core-source\target\x86_64-pc-windows-msvc\release\aioncore.exe
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Sentry source-map upload is intentionally NOT enabled: the vite config

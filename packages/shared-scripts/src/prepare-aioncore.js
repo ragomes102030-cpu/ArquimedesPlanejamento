@@ -574,35 +574,29 @@ function prepareAioncore(options) {
   // and the UI shows "a newer version of AionUi is required".
   //
   // Resolution order: AIONCORE_BIN_PATH, then a sibling `AionCore` checkout with
-  // a cargo release build. Requires managed-resources/ to already be present
-  // (that runtime ships with the download bundle); otherwise we fall through to
-  // the download so a fresh clone and CI keep working.
+  // a cargo release build. Prepare managed resources from the same binary so a
+  // fresh CI checkout can bundle the pinned source without an upstream release.
   const localBuildBinary = resolveLocalAioncoreBuild(projectRoot, binaryName);
   if (localBuildBinary) {
-    const managedResourcesDir = path.join(targetDir, 'managed-resources');
-    if (fs.existsSync(managedResourcesDir)) {
-      copyFileSafe(localBuildBinary, targetBinaryPath);
-      ensureExecutableMode(targetBinaryPath);
-      const localBuildManifest = {
-        platform,
-        arch,
-        version: tag || 'local-build',
-        generatedAt: new Date().toISOString(),
-        sourceType: 'local-build',
-        source: {
-          path: localBuildBinary,
-          reason:
-            'Local build preferred over the upstream download: the upstream binary can predate the schema this repo expects.',
-        },
-        files: [packagedBinaryName, 'managed-resources/'],
-      };
-      writeJson(path.join(targetDir, 'manifest.json'), localBuildManifest);
-      console.log(`  Using local aioncore build: ${localBuildBinary}`);
-      return { prepared: true, dir: targetDir, sourceType: 'local-build' };
-    }
-    console.warn(
-      `  Local aioncore build found (${localBuildBinary}) but managed-resources/ is missing; using the download bundle instead.`
-    );
+    copyFileSafe(localBuildBinary, targetBinaryPath);
+    ensureExecutableMode(targetBinaryPath);
+    const managedResourcesDir = prepareManagedResources(targetBinaryPath, targetDir);
+    const localBuildManifest = {
+      platform,
+      arch,
+      version: 'local-build',
+      generatedAt: new Date().toISOString(),
+      sourceType: 'local-build',
+      source: {
+        path: localBuildBinary,
+        reason:
+          'Local build preferred over the upstream download: the upstream binary can predate the schema this repo expects.',
+      },
+      files: [packagedBinaryName, 'managed-resources/'],
+    };
+    writeJson(path.join(targetDir, 'manifest.json'), localBuildManifest);
+    console.log(`  Using local aioncore build: ${localBuildBinary}`);
+    return { prepared: true, dir: targetDir, sourceType: 'local-build' };
   }
 
   removeDirectorySafe(targetDir);
