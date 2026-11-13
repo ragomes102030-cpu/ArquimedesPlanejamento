@@ -26,7 +26,7 @@ name: Build Windows Installer
 # Build output: electron-builder writes to `<repo>/out`. packages/desktop/electron-builder.yml
 # sets `directories.output: out` with `directories.app: .`, and
 # scripts/build-with-builder.js always packages from the repository root, so the
-# installer lands at `out/AionUi-<version>-win-x64.exe` — NOT under packages/desktop/out.
+# installer lands at `out/Arquimedes-<version>-win-x64.exe` — NOT under packages/desktop/out.
 # ---------------------------------------------------------------------------
 
 on:
@@ -210,7 +210,7 @@ jobs:
         shell: pwsh
         run: |
           $version = (node -p "require('./package.json').version").Trim()
-          $exe = "out\AionUi-$version-win-x64.exe"
+          $exe = "out\Arquimedes-$version-win-x64.exe"
 
           Write-Host 'Build output:'
           Get-ChildItem out -File -ErrorAction SilentlyContinue |
