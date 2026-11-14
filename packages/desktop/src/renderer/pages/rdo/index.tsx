@@ -15,7 +15,14 @@ import {
   Upload,
 } from '@arco-design/web-react';
 import { BookOpen, Plus, Robot, Save } from '@icon-park/react';
-import type { RdoAPI, RdoAttachment, RdoEntry, RdoWeather, SaveRdoEntryInput } from '@/common/rdo/rdoTypes';
+import type {
+  RdoAPI,
+  RdoAttachment,
+  RdoEntry,
+  RdoReportService,
+  RdoWeather,
+  SaveRdoEntryInput,
+} from '@/common/rdo/rdoTypes';
 import { RDO_WEATHER_OPTIONS } from '@/common/rdo/rdoTypes';
 import type { Task } from '@/common/task/taskTypes';
 import { useAssistantList } from '@renderer/hooks/assistant/useAssistantList';
@@ -84,11 +91,12 @@ const RdoPage: React.FC = () => {
   const [reportTask, setReportTask] = useState<Task | null>(null);
   const [reportError, setReportError] = useState<string | null>(null);
   const [actorName, setActorName] = useState('');
-  const [actorRole, setActorRole] = useState('ResponsÃ¡vel pela obra');
+  const [actorRole, setActorRole] = useState('Responsável pela obra');
   const [reopenReason, setReopenReason] = useState('');
   const [transitioning, setTransitioning] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [attachments, setAttachments] = useState<RdoAttachment[]>([]);
+  const [dayServices, setDayServices] = useState<RdoReportService[]>([]);
   const api: RdoAPI = typeof window !== 'undefined' && window.rdoAPI ? window.rdoAPI : rdoHttpApi;
 
   useEffect(() => {
@@ -128,12 +136,19 @@ const RdoPage: React.FC = () => {
   useEffect(() => {
     if (!selectedEntry) {
       setAttachments([]);
+      setDayServices([]);
       return;
     }
     void api
       .detail(selectedEntry.id)
-      .then((detail) => setAttachments(detail.attachments))
-      .catch(() => setAttachments([]));
+      .then((detail) => {
+        setAttachments(detail.attachments);
+        setDayServices(detail.services);
+      })
+      .catch(() => {
+        setAttachments([]);
+        setDayServices([]);
+      });
   }, [api, selectedEntry?.id]);
 
   useEffect(() => {
@@ -183,7 +198,7 @@ const RdoPage: React.FC = () => {
         ...(selectedEntry
           ? { expected_revision: selectedEntry.current_revision, expected_status: selectedEntry.status }
           : {}),
-        actor: { name: actorName || 'UsuÃ¡rio local', role: actorRole || 'ResponsÃ¡vel pela obra' },
+        actor: { name: actorName || 'Usuário local', role: actorRole || 'Responsável pela obra' },
       };
       const saved = await api.save(input);
       setEntries((current) =>
@@ -208,7 +223,7 @@ const RdoPage: React.FC = () => {
   const transitionEntry = async (action: 'approve' | 'reopen') => {
     if (!selectedEntry) return;
     if (!actorName.trim() || !actorRole.trim()) {
-      Message.warning(t('agentTasks.rdo.actorRequired', { defaultValue: 'Informe nome e funÃ§Ã£o do responsÃ¡vel.' }));
+      Message.warning(t('agentTasks.rdo.actorRequired', { defaultValue: 'Informe nome e função do responsável.' }));
       return;
     }
     if (action === 'reopen' && !reopenReason.trim()) {
@@ -229,8 +244,8 @@ const RdoPage: React.FC = () => {
       setReopenReason('');
       Message.success(
         action === 'approve'
-          ? t('agentTasks.rdo.approved', { defaultValue: 'DiÃ¡rio aprovado e congelado.' })
-          : t('agentTasks.rdo.reopened', { defaultValue: 'DiÃ¡rio reaberto para revisÃ£o.' })
+          ? t('agentTasks.rdo.approved', { defaultValue: 'Diário aprovado e congelado.' })
+          : t('agentTasks.rdo.reopened', { defaultValue: 'Diário reaberto para revisão.' })
       );
     } catch (error) {
       Message.error(error instanceof Error ? error.message : String(error));
@@ -241,9 +256,13 @@ const RdoPage: React.FC = () => {
 
   const exportPdf = async () => {
     if (!selectedEntry) return;
+    if (!actorName.trim() || !actorRole.trim()) {
+      Message.warning(t('agentTasks.rdo.actorRequired', { defaultValue: 'Informe nome e função do responsável.' }));
+      return;
+    }
     setExportingPdf(true);
     try {
-      const result = await api.exportPdf(selectedEntry.id);
+      const result = await api.exportPdf(selectedEntry.id, { name: actorName.trim(), role: actorRole.trim() });
       const binary = atob(result.base64);
       const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
       const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
@@ -259,10 +278,39 @@ const RdoPage: React.FC = () => {
     }
   };
 
+  const openEvidence = async (attachment: RdoAttachment) => {
+    try {
+      const result = await api.readAttachment(attachment.id);
+      const binary = atob(result.base64);
+      const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bytes], { type: result.mime_type }));
+      window.open(url, '_blank', 'noopener,noreferrer');
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (error) {
+      Message.error(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const downloadEvidence = async (attachment: RdoAttachment) => {
+    try {
+      const result = await api.readAttachment(attachment.id);
+      const binary = atob(result.base64);
+      const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bytes], { type: result.mime_type }));
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = result.filename;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      Message.error(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   const uploadEvidence = async (file: File): Promise<boolean> => {
     if (!selectedEntry || selectedEntry.status === 'approved') return false;
     if (!actorName.trim() || !actorRole.trim()) {
-      Message.warning(t('agentTasks.rdo.actorRequired', { defaultValue: 'Informe nome e funÃ§Ã£o do responsÃ¡vel.' }));
+      Message.warning(t('agentTasks.rdo.actorRequired', { defaultValue: 'Informe nome e função do responsável.' }));
       return false;
     }
     try {
@@ -278,7 +326,7 @@ const RdoPage: React.FC = () => {
         actor: { name: actorName.trim(), role: actorRole.trim() },
       });
       setAttachments((current) => [...current, saved]);
-      Message.success(t('agentTasks.rdo.evidenceAdded', { defaultValue: 'EvidÃªncia adicionada.' }));
+      Message.success(t('agentTasks.rdo.evidenceAdded', { defaultValue: 'Evidência adicionada.' }));
     } catch (error) {
       Message.error(error instanceof Error ? error.message : String(error));
     }
@@ -286,6 +334,10 @@ const RdoPage: React.FC = () => {
   };
 
   const removeEvidence = async (attachmentId: string) => {
+    if (!actorName.trim() || !actorRole.trim()) {
+      Message.warning(t('agentTasks.rdo.actorRequired', { defaultValue: 'Informe nome e função do responsável.' }));
+      return;
+    }
     try {
       await api.removeAttachment(attachmentId, { name: actorName.trim(), role: actorRole.trim() });
       setAttachments((current) => current.filter((item) => item.id !== attachmentId));
@@ -550,6 +602,24 @@ const RdoPage: React.FC = () => {
                       </Select.Option>
                     ))}
                 </Select>
+                {dayServices.length > 0 ? (
+                  <div className='mt-8px rounded-8px bg-[var(--color-fill-2)] p-10px'>
+                    <p className='m-0 text-11px font-semibold text-t-primary'>
+                      Produção registrada no Kanban nesta data
+                    </p>
+                    {dayServices.map((service) => (
+                      <div key={service.title} className='mt-6px text-11px text-t-secondary'>
+                        <strong>{service.title}</strong>
+                        {service.logs.map((log) => (
+                          <span key={log.id ?? `${log.work_date}-${log.location}`} className='ml-6px'>
+                            {log.quantity ?? 'Não medido'} {log.unit ?? ''}
+                            {log.location ? ` · ${log.location}` : ''}
+                          </span>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
               </Field>
               <Field label={t('agentTasks.rdo.equipment', { defaultValue: 'Equipamentos utilizados' })}>
                 <Input.TextArea
@@ -603,12 +673,12 @@ const RdoPage: React.FC = () => {
                 <Input
                   value={actorName}
                   onChange={setActorName}
-                  placeholder={t('agentTasks.rdo.actorName', { defaultValue: 'Nome do responsÃ¡vel' })}
+                  placeholder={t('agentTasks.rdo.actorName', { defaultValue: 'Nome do responsável' })}
                 />
                 <Input
                   value={actorRole}
                   onChange={setActorRole}
-                  placeholder={t('agentTasks.rdo.actorRole', { defaultValue: 'FunÃ§Ã£o' })}
+                  placeholder={t('agentTasks.rdo.actorRole', { defaultValue: 'Função' })}
                 />
                 {selectedEntry.status === 'approved' ? (
                   <Input
@@ -616,7 +686,7 @@ const RdoPage: React.FC = () => {
                     value={reopenReason}
                     onChange={setReopenReason}
                     placeholder={t('agentTasks.rdo.reopenReason', {
-                      defaultValue: 'Motivo obrigatÃ³rio da reabertura',
+                      defaultValue: 'Motivo obrigatório da reabertura',
                     })}
                   />
                 ) : null}
@@ -639,13 +709,21 @@ const RdoPage: React.FC = () => {
                         className='flex items-center justify-between gap-8px text-11px text-t-secondary'
                       >
                         <span className='truncate'>
-                          {attachment.original_name} Â· {(attachment.size_bytes / 1024).toFixed(1)} KB
+                          {attachment.original_name} · {(attachment.size_bytes / 1024).toFixed(1)} KB
                         </span>
-                        {selectedEntry.status === 'draft' ? (
-                          <Button size='mini' status='danger' onClick={() => void removeEvidence(attachment.id)}>
-                            Remover
+                        <span className='flex shrink-0 items-center gap-4px'>
+                          <Button size='mini' onClick={() => void openEvidence(attachment)}>
+                            {t('agentTasks.rdo.openEvidence', { defaultValue: 'Abrir' })}
                           </Button>
-                        ) : null}
+                          <Button size='mini' onClick={() => void downloadEvidence(attachment)}>
+                            {t('agentTasks.rdo.downloadEvidence', { defaultValue: 'Baixar' })}
+                          </Button>
+                          {selectedEntry.status === 'draft' ? (
+                            <Button size='mini' status='danger' onClick={() => void removeEvidence(attachment.id)}>
+                              {t('agentTasks.rdo.removeEvidence', { defaultValue: 'Remover' })}
+                            </Button>
+                          ) : null}
+                        </span>
                       </div>
                     ))}
                   </div>

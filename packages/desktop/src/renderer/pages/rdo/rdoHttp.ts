@@ -26,10 +26,11 @@ export const rdoHttpApi: RdoAPI = {
       method: 'POST',
       body: JSON.stringify(input),
     }),
-  exportPdf: (_entryId) => Promise.reject(new Error('A exportaÃ§Ã£o PDF estÃ¡ disponÃ­vel no aplicativo desktop.')),
-  addAttachment: (_input) =>
-    Promise.reject(new Error('O envio de evidÃªncias estÃ¡ disponÃ­vel no aplicativo desktop.')),
+  exportPdf: (_entryId, _actor) => Promise.reject(new Error('A exportação PDF está disponível no aplicativo desktop.')),
+  addAttachment: (_input) => Promise.reject(new Error('O envio de evidências está disponível no aplicativo desktop.')),
   removeAttachment: (_attachmentId, _actor) =>
-    Promise.reject(new Error('A remoÃ§Ã£o de evidÃªncias estÃ¡ disponÃ­vel no aplicativo desktop.')),
+    Promise.reject(new Error('A remoção de evidências está disponível no aplicativo desktop.')),
+  readAttachment: (_attachmentId) =>
+    Promise.reject(new Error('A leitura de evidências está disponível no aplicativo desktop.')),
   generateReport: (_input): Promise<Task> => Promise.reject(new Error(FIELD_DESKTOP_ONLY)),
 };

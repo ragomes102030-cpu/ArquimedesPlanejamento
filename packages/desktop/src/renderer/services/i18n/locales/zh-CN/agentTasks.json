@@ -72,6 +72,9 @@
     "reopen": "Reopen with reason",
     "exportPdf": "Download PDF",
     "addEvidence": "Add photo or PDF",
-    "evidenceAdded": "Evidence added."
+    "evidenceAdded": "Evidence added.",
+    "openEvidence": "Open",
+    "downloadEvidence": "Download",
+    "removeEvidence": "Remove"
   }
 }

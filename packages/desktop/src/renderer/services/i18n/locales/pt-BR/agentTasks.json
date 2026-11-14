@@ -286,17 +286,20 @@
     }
   },
   "rdo": {
-    "actorRequired": "Informe nome e funÃ§Ã£o do responsÃ¡vel.",
-    "actorName": "Nome do responsÃ¡vel",
-    "actorRole": "FunÃ§Ã£o",
+    "actorRequired": "Informe nome e função do responsável.",
+    "actorName": "Nome do responsável",
+    "actorRole": "Função",
     "reasonRequired": "Informe o motivo da reabertura.",
-    "reopenReason": "Motivo obrigatÃ³rio da reabertura",
-    "approved": "DiÃ¡rio aprovado e congelado.",
-    "reopened": "DiÃ¡rio reaberto para revisÃ£o.",
+    "reopenReason": "Motivo obrigatório da reabertura",
+    "approved": "Diário aprovado e congelado.",
+    "reopened": "Diário reaberto para revisão.",
     "approve": "Aprovar e congelar",
     "reopen": "Reabrir com justificativa",
     "exportPdf": "Baixar PDF",
     "addEvidence": "Adicionar foto ou PDF",
-    "evidenceAdded": "EvidÃªncia adicionada."
+    "evidenceAdded": "Evidência adicionada.",
+    "openEvidence": "Abrir",
+    "downloadEvidence": "Baixar",
+    "removeEvidence": "Remover"
   }
 }

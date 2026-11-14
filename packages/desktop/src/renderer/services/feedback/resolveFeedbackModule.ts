@@ -22,6 +22,9 @@ const ROUTE_MODULE_MAP: ReadonlyArray<readonly [prefix: string, tag: FeedbackMod
   // receipts. Route it to agent-team so the button lands on the module the
   // engineer is most likely reporting against.
   ['/kanban', 'agent-team'],
+  // O Diário de Campo é a face de campo do mesmo quadro: nasce dos
+  // apontamentos do Kanban e é para lá que a correção volta.
+  ['/rdo', 'agent-team'],
   ['/team', 'agent-team'],
   ['/scheduled', 'scheduled-task'],
   ['/assistants', 'assistant-preset'],

@@ -284,8 +284,9 @@ export type RdoAPI = {
   save: (input: SaveRdoEntryInput) => Promise<RdoEntry>;
   detail: (entryId: string) => Promise<RdoDetail>;
   transition: (input: TransitionRdoInput) => Promise<RdoDetail>;
-  exportPdf: (entryId: string) => Promise<{ filename: string; base64: string }>;
+  exportPdf: (entryId: string, actor: RdoActor) => Promise<{ filename: string; base64: string }>;
   addAttachment: (input: AddRdoAttachmentInput) => Promise<RdoAttachment>;
   removeAttachment: (attachmentId: string, actor: RdoActor) => Promise<void>;
+  readAttachment: (attachmentId: string) => Promise<{ filename: string; mime_type: string; base64: string }>;
   generateReport: (input: GenerateRdoReportInput) => Promise<Task>;
 };

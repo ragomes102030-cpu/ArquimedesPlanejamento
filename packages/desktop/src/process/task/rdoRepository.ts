@@ -20,7 +20,8 @@ import {
   type TransitionRdoInput,
 } from '@/common/rdo/rdoTypes';
 import { ensureKanbanSchema } from './kanbanRepository';
-import { buildCanonicalRdoSnapshot } from './rdo/canonicalSnapshot';
+import { summarizeKanbanProduction, type KanbanDailyLog } from '@/common/kanban/kanbanTypes';
+import { buildCanonicalRdoSnapshot, buildEvidenceManifest } from './rdo/canonicalSnapshot';
 
 type RdoRow = Omit<RdoEntry, 'linked_card_ids'> & { linked_card_ids: string };
 type RdoDatabase = Database.Database;
@@ -134,6 +135,10 @@ function listDayServices(db: RdoDatabase, entry: RdoEntry): RdoReportService[] {
     SELECT id, idempotency_key, work_date, location, quantity, unit, crew, hours, equipment, occurrence
       FROM kanban_daily_logs WHERE card_id = ? AND work_date = ? ORDER BY created_at, id
   `);
+  const cumulativeLogs = db.prepare(`
+    SELECT id, card_id, idempotency_key, work_date, location, quantity, unit, crew, hours, equipment, occurrence, created_at
+      FROM kanban_daily_logs WHERE card_id = ? ORDER BY work_date ASC, created_at ASC, id ASC
+  `);
   return rows.map((row) => ({
     title: row.title,
     description: row.description,
@@ -141,6 +146,9 @@ function listDayServices(db: RdoDatabase, entry: RdoEntry): RdoReportService[] {
     assignee: row.assignee,
     planned_quantity: row.planned_quantity,
     quantity_unit: row.quantity_unit,
+    // The card's accumulated production is part of the service contract, but it
+    // is NOT the day's production — the dated logs below are.
+    production_summary: summarizeKanbanProduction(row.planned_quantity, cumulativeLogs.all(row.id) as KanbanDailyLog[]),
     logs: logs.all(row.id, entry.work_date) as RdoReportService['logs'],
   }));
 }
@@ -258,6 +266,14 @@ export function ensureRdoSchema(db: RdoDatabase): void {
       created_by_name TEXT NOT NULL, created_by_role TEXT NOT NULL, created_at INTEGER NOT NULL,
       removed_at INTEGER, FOREIGN KEY(entry_id) REFERENCES rdo_entries(id)
     );
+    CREATE TRIGGER IF NOT EXISTS rdo_revisions_no_update BEFORE UPDATE ON rdo_revisions
+      BEGIN SELECT RAISE(ABORT, 'RDO revisions are immutable'); END;
+    CREATE TRIGGER IF NOT EXISTS rdo_revisions_no_delete BEFORE DELETE ON rdo_revisions
+      BEGIN SELECT RAISE(ABORT, 'RDO revisions are immutable'); END;
+    CREATE TRIGGER IF NOT EXISTS rdo_audit_no_update BEFORE UPDATE ON rdo_audit_events
+      BEGIN SELECT RAISE(ABORT, 'RDO audit events are immutable'); END;
+    CREATE TRIGGER IF NOT EXISTS rdo_audit_no_delete BEFORE DELETE ON rdo_audit_events
+      BEGIN SELECT RAISE(ABORT, 'RDO audit events are immutable'); END;
   `);
   const columns = new Set(
     (db.prepare('PRAGMA table_info(rdo_entries)').all() as Array<{ name: string }>).map((c) => c.name)
@@ -340,68 +356,83 @@ export function saveRdoEntry(db: RdoDatabase, input: SaveRdoEntryInput): RdoEntr
   if (existing && input.expected_status !== undefined && input.expected_status !== existing.status)
     throw new Error('RDO conflict: status changed');
 
-  if (existing) {
-    db.prepare(
-      `UPDATE rdo_entries SET
+  const persist = db.transaction((): RdoEntry => {
+    if (existing) {
+      const result = db
+        .prepare(
+          `UPDATE rdo_entries SET
         board_id = ?, project_name = ?, work_date = ?, weather = ?, weather_notes = ?,
         workforce_count = ?, workforce_notes = ?, work_summary = ?, equipment = ?, materials = ?,
         occurrences = ?, safety_notes = ?, visitors = ?, linked_card_ids = ?, current_revision = current_revision + 1, updated_at = ?
-       WHERE id = ?`
-    ).run(
-      boardId,
-      board.name,
-      workDate,
-      input.weather as RdoWeather,
-      normalizeText(input.weather_notes, 'weather_notes'),
-      input.workforce_count,
-      normalizeText(input.workforce_notes, 'workforce_notes'),
-      normalizeText(input.work_summary, 'work_summary'),
-      normalizeText(input.equipment, 'equipment'),
-      normalizeText(input.materials, 'materials'),
-      normalizeText(input.occurrences, 'occurrences'),
-      normalizeText(input.safety_notes, 'safety_notes'),
-      normalizeText(input.visitors, 'visitors'),
-      JSON.stringify(linkedCardIds),
-      timestamp,
-      id
-    );
-  } else {
-    db.prepare(
-      `INSERT INTO rdo_entries
+       WHERE id = ? AND status = ? AND current_revision = ?`
+        )
+        .run(
+          boardId,
+          board.name,
+          workDate,
+          input.weather as RdoWeather,
+          normalizeText(input.weather_notes, 'weather_notes'),
+          input.workforce_count,
+          normalizeText(input.workforce_notes, 'workforce_notes'),
+          normalizeText(input.work_summary, 'work_summary'),
+          normalizeText(input.equipment, 'equipment'),
+          normalizeText(input.materials, 'materials'),
+          normalizeText(input.occurrences, 'occurrences'),
+          normalizeText(input.safety_notes, 'safety_notes'),
+          normalizeText(input.visitors, 'visitors'),
+          JSON.stringify(linkedCardIds),
+          timestamp,
+          id,
+          existing.status,
+          existing.current_revision
+        );
+      if (result.changes !== 1) throw new Error('RDO conflict: revision or status changed');
+    } else {
+      // The board/day pair is UNIQUE; re-check it inside the transaction so two
+      // concurrent saves cannot both pass the pre-check and one silently lose.
+      const raced = db
+        .prepare('SELECT id FROM rdo_entries WHERE board_id = ? AND work_date = ?')
+        .get(boardId, workDate) as { id: string } | undefined;
+      if (raced) throw new Error('A field report already exists for this project and date');
+      db.prepare(
+        `INSERT INTO rdo_entries
         (id, board_id, project_name, work_date, weather, weather_notes, workforce_count, workforce_notes,
          work_summary, equipment, materials, occurrences, safety_notes, visitors, linked_card_ids,
          report_task_id, report_assistant_id, status, current_revision, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 'draft', 1, ?, ?)`
-    ).run(
-      id,
-      boardId,
-      board.name,
-      workDate,
-      input.weather as RdoWeather,
-      normalizeText(input.weather_notes, 'weather_notes'),
-      input.workforce_count,
-      normalizeText(input.workforce_notes, 'workforce_notes'),
-      normalizeText(input.work_summary, 'work_summary'),
-      normalizeText(input.equipment, 'equipment'),
-      normalizeText(input.materials, 'materials'),
-      normalizeText(input.occurrences, 'occurrences'),
-      normalizeText(input.safety_notes, 'safety_notes'),
-      normalizeText(input.visitors, 'visitors'),
-      JSON.stringify(linkedCardIds),
-      timestamp,
-      timestamp
+      ).run(
+        id,
+        boardId,
+        board.name,
+        workDate,
+        input.weather as RdoWeather,
+        normalizeText(input.weather_notes, 'weather_notes'),
+        input.workforce_count,
+        normalizeText(input.workforce_notes, 'workforce_notes'),
+        normalizeText(input.work_summary, 'work_summary'),
+        normalizeText(input.equipment, 'equipment'),
+        normalizeText(input.materials, 'materials'),
+        normalizeText(input.occurrences, 'occurrences'),
+        normalizeText(input.safety_notes, 'safety_notes'),
+        normalizeText(input.visitors, 'visitors'),
+        JSON.stringify(linkedCardIds),
+        timestamp,
+        timestamp
+      );
+    }
+    const row = db.prepare(`SELECT ${RDO_COLUMNS} FROM rdo_entries WHERE id = ?`).get(id) as RdoRow | undefined;
+    if (!row) throw new Error('Field report could not be read after saving');
+    const saved = toEntry(row);
+    createRevision(
+      db,
+      saved,
+      actorOrLocal(input.actor),
+      existing ? 'Dados do diario atualizados' : 'Diario criado',
+      existing ? 'saved' : 'created'
     );
-  }
-  const saved = getRdoEntry(db, id);
-  if (!saved) throw new Error('Field report could not be read after saving');
-  createRevision(
-    db,
-    saved,
-    actorOrLocal(input.actor),
-    existing ? 'Dados do diario atualizados' : 'Diario criado',
-    existing ? 'saved' : 'created'
-  );
-  return saved;
+    return saved;
+  });
+  return persist.immediate();
 }
 
 export function linkRdoReportTask(db: RdoDatabase, entryId: string, taskId: string, assistantId: string): void {
@@ -439,46 +470,40 @@ export function transitionRdo(db: RdoDatabase, input: TransitionRdoInput): RdoDe
   ensureRdoSchema(db);
   const actor = actorOrLocal(input.actor);
   if (!input.actor?.name.trim() || !input.actor.role.trim()) throw new Error('Name and role are required');
-  const current = getRdoEntry(db, input.entry_id);
-  if (!current) throw new Error('Field report not found');
-  if (current.current_revision !== input.expected_revision || current.status !== input.expected_status)
-    throw new Error('RDO conflict: revision or status changed');
-  const timestamp = Date.now();
-  if (input.action === 'approve') {
-    if (current.status !== 'draft') throw new Error('Only a draft field report can be approved');
-    const attachments = db
-      .prepare('SELECT * FROM rdo_attachments WHERE entry_id = ? AND removed_at IS NULL')
-      .all(current.id) as RdoDetail['attachments'];
-    const snapshot = buildCanonicalRdoSnapshot({
-      entry: snapshotEntry(current),
-      services: listDayServices(db, current),
-      evidence_manifest: attachments
-        .map(({ id, original_name, mime_type, size_bytes, sha256, caption, location, card_id, daily_log_id }) => ({
-          id,
-          original_name,
-          mime_type,
-          size_bytes,
-          sha256,
-          caption,
-          location,
-          card_id,
-          daily_log_id,
-        }))
-        .toSorted((a, b) => a.id.localeCompare(b.id)),
-    });
-    db.transaction(() => {
-      db.prepare(`UPDATE rdo_entries SET status = 'approved', approved_revision = current_revision,
+  const transition = db.transaction((): void => {
+    const row = db.prepare(`SELECT ${RDO_COLUMNS} FROM rdo_entries WHERE id = ?`).get(input.entry_id) as
+      | RdoRow
+      | undefined;
+    if (!row) throw new Error('Field report not found');
+    const current = toEntry(row);
+    if (current.current_revision !== input.expected_revision || current.status !== input.expected_status)
+      throw new Error('RDO conflict: revision or status changed');
+    const timestamp = Date.now();
+    if (input.action === 'approve') {
+      if (current.status !== 'draft') throw new Error('Only a draft field report can be approved');
+      const attachments = db
+        .prepare('SELECT * FROM rdo_attachments WHERE entry_id = ? AND removed_at IS NULL')
+        .all(current.id) as RdoDetail['attachments'];
+      const snapshot = buildCanonicalRdoSnapshot({
+        entry: snapshotEntry(current),
+        services: listDayServices(db, current),
+        evidence_manifest: buildEvidenceManifest(attachments),
+      });
+      const result = db
+        .prepare(`UPDATE rdo_entries SET status = 'approved', approved_revision = current_revision,
         approved_by_name = ?, approved_by_role = ?, approved_at = ?, approved_hash = ?, approved_snapshot_json = ?, updated_at = ?
-        WHERE id = ? AND status = 'draft' AND current_revision = ?`).run(
-        actor.name,
-        actor.role,
-        timestamp,
-        snapshot.hash,
-        snapshot.json,
-        timestamp,
-        current.id,
-        current.current_revision
-      );
+        WHERE id = ? AND status = 'draft' AND current_revision = ?`)
+        .run(
+          actor.name,
+          actor.role,
+          timestamp,
+          snapshot.hash,
+          snapshot.json,
+          timestamp,
+          current.id,
+          current.current_revision
+        );
+      if (result.changes !== 1) throw new Error('RDO conflict: revision or status changed');
       db.prepare(`INSERT INTO rdo_audit_events
         (id, entry_id, event_type, from_status, to_status, revision_number, content_hash, actor_name, actor_role, note, created_at)
         VALUES (?, ?, 'approved', 'draft', 'approved', ?, ?, ?, ?, ?, ?)`).run(
@@ -491,91 +516,152 @@ export function transitionRdo(db: RdoDatabase, input: TransitionRdoInput): RdoDe
         input.reason?.trim() || 'Aprovacao interna',
         timestamp
       );
-    })();
-  } else {
+      return;
+    }
     const reason = input.reason?.trim();
     if (!reason) throw new Error('A reason is required to reopen an approved field report');
     if (current.status !== 'approved') throw new Error('Only an approved field report can be reopened');
-    db.transaction(() => {
-      db.prepare(`UPDATE rdo_entries SET status = 'draft', approved_revision = NULL, approved_by_name = NULL,
-        approved_by_role = NULL, approved_at = NULL, approved_hash = NULL, approved_snapshot_json = NULL, updated_at = ? WHERE id = ?`).run(
-        timestamp,
-        current.id
-      );
-      db.prepare(`INSERT INTO rdo_audit_events
-        (id, entry_id, event_type, from_status, to_status, revision_number, content_hash, actor_name, actor_role, note, created_at)
-        VALUES (?, ?, 'reopened', 'approved', 'draft', ?, ?, ?, ?, ?, ?)`).run(
-        createId(),
-        current.id,
-        current.current_revision,
-        current.approved_hash || '',
-        actor.name,
-        actor.role,
-        reason,
-        timestamp
-      );
-    })();
-  }
-  return getRdoDetail(db, current.id);
+    const result = db
+      .prepare(`UPDATE rdo_entries SET status = 'draft', approved_revision = NULL, approved_by_name = NULL,
+      approved_by_role = NULL, approved_at = NULL, approved_hash = NULL, approved_snapshot_json = NULL, updated_at = ?
+      WHERE id = ? AND status = 'approved' AND current_revision = ?`)
+      .run(timestamp, current.id, current.current_revision);
+    if (result.changes !== 1) throw new Error('RDO conflict: revision or status changed');
+    db.prepare(`INSERT INTO rdo_audit_events
+      (id, entry_id, event_type, from_status, to_status, revision_number, content_hash, actor_name, actor_role, note, created_at)
+      VALUES (?, ?, 'reopened', 'approved', 'draft', ?, ?, ?, ?, ?, ?)`).run(
+      createId(),
+      current.id,
+      current.current_revision,
+      current.approved_hash || '',
+      actor.name,
+      actor.role,
+      reason,
+      timestamp
+    );
+  });
+  transition.immediate();
+  return getRdoDetail(db, input.entry_id);
 }
 
 export function addRdoAttachmentMetadata(
   db: RdoDatabase,
   input: Omit<RdoAttachment, 'board_id' | 'work_date' | 'created_at' | 'removed_at'>
 ): RdoAttachment {
-  const entry = getRdoEntry(db, input.entry_id || '');
-  if (!entry) throw new Error('Field report not found');
-  if (entry.status !== 'draft') throw new Error('Evidence can only be added while the field report is a draft');
-  const count = db
-    .prepare(
-      'SELECT COUNT(*) AS count FROM rdo_attachments WHERE board_id = ? AND work_date = ? AND removed_at IS NULL'
-    )
-    .get(entry.board_id, entry.work_date) as { count: number };
-  if (count.count >= 30) throw new Error('A field report is limited to 30 active attachments');
-  const createdAt = Date.now();
-  db.prepare(`INSERT INTO rdo_attachments
+  const add = db.transaction((): RdoAttachment => {
+    const row = db.prepare(`SELECT ${RDO_COLUMNS} FROM rdo_entries WHERE id = ?`).get(input.entry_id || '') as
+      | RdoRow
+      | undefined;
+    if (!row) throw new Error('Field report not found');
+    const entry = toEntry(row);
+    if (entry.status !== 'draft') throw new Error('Evidence can only be added while the field report is a draft');
+    if (!input.created_by_name.trim() || !input.created_by_role.trim()) throw new Error('Name and role are required');
+    const count = db
+      .prepare(
+        'SELECT COUNT(*) AS count FROM rdo_attachments WHERE board_id = ? AND work_date = ? AND removed_at IS NULL'
+      )
+      .get(entry.board_id, entry.work_date) as { count: number };
+    if (count.count >= 30) throw new Error('A field report is limited to 30 active attachments');
+    const createdAt = Date.now();
+    db.prepare(`INSERT INTO rdo_attachments
     (id, board_id, work_date, entry_id, card_id, daily_log_id, original_name, mime_type, size_bytes, sha256,
      caption, location, created_by_name, created_by_role, created_at, removed_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`).run(
-    input.id,
-    entry.board_id,
-    entry.work_date,
-    entry.id,
-    input.card_id,
-    input.daily_log_id,
-    input.original_name,
-    input.mime_type,
-    input.size_bytes,
-    input.sha256,
-    input.caption,
-    input.location,
-    input.created_by_name,
-    input.created_by_role,
-    createdAt
-  );
-  return db.prepare('SELECT * FROM rdo_attachments WHERE id = ?').get(input.id) as RdoAttachment;
+      input.id,
+      entry.board_id,
+      entry.work_date,
+      entry.id,
+      input.card_id,
+      input.daily_log_id,
+      input.original_name,
+      input.mime_type,
+      input.size_bytes,
+      input.sha256,
+      input.caption,
+      input.location,
+      input.created_by_name,
+      input.created_by_role,
+      createdAt
+    );
+    db.prepare(`INSERT INTO rdo_audit_events
+      (id, entry_id, event_type, from_status, to_status, revision_number, content_hash, actor_name, actor_role, note, created_at)
+      VALUES (?, ?, 'attachment_added', 'draft', 'draft', ?, ?, ?, ?, ?, ?)`).run(
+      createId(),
+      entry.id,
+      entry.current_revision,
+      input.sha256,
+      input.created_by_name,
+      input.created_by_role,
+      input.original_name,
+      createdAt
+    );
+    return db.prepare('SELECT * FROM rdo_attachments WHERE id = ?').get(input.id) as RdoAttachment;
+  });
+  return add.immediate();
 }
 
 export function removeRdoAttachmentMetadata(db: RdoDatabase, attachmentId: string, actor: RdoActor): RdoAttachment {
+  ensureRdoSchema(db);
+  if (!actor.name.trim() || !actor.role.trim()) throw new Error('Name and role are required');
+  const remove = db.transaction((): RdoAttachment => {
+    const attachment = db
+      .prepare('SELECT * FROM rdo_attachments WHERE id = ? AND removed_at IS NULL')
+      .get(attachmentId) as RdoAttachment | undefined;
+    if (!attachment) throw new Error('Evidence not found');
+    // Leitura direta: não chamar ensureRdoSchema() (DDL) dentro da transação.
+    const entryRow = attachment.entry_id
+      ? (db.prepare(`SELECT ${RDO_COLUMNS} FROM rdo_entries WHERE id = ?`).get(attachment.entry_id) as
+          | RdoRow
+          | undefined)
+      : undefined;
+    if (!entryRow) throw new Error('Evidence is not linked to a field report');
+    const entry = toEntry(entryRow);
+    if (entry.status !== 'draft') throw new Error('Evidence can only be removed while the field report is a draft');
+    const timestamp = Date.now();
+    const result = db
+      .prepare('UPDATE rdo_attachments SET removed_at = ? WHERE id = ? AND removed_at IS NULL')
+      .run(timestamp, attachmentId);
+    if (result.changes !== 1) throw new Error('Evidence not found');
+    db.prepare(`INSERT INTO rdo_audit_events
+    (id, entry_id, event_type, from_status, to_status, revision_number, content_hash, actor_name, actor_role, note, created_at)
+    VALUES (?, ?, 'attachment_removed', 'draft', 'draft', ?, '', ?, ?, ?, ?)`).run(
+      createId(),
+      entry.id,
+      entry.current_revision,
+      actor.name,
+      actor.role,
+      attachment.original_name,
+      timestamp
+    );
+    return attachment;
+  });
+  return remove.immediate();
+}
+
+export function recordRdoPdfExport(db: RdoDatabase, entryId: string, actor: RdoActor): void {
+  if (!actor.name.trim() || !actor.role.trim()) throw new Error('Name and role are required');
+  const entry = getRdoEntry(db, entryId);
+  if (!entry) throw new Error('Field report not found');
+  db.prepare(`INSERT INTO rdo_audit_events
+    (id, entry_id, event_type, from_status, to_status, revision_number, content_hash, actor_name, actor_role, note, created_at)
+    VALUES (?, ?, 'pdf_exported', ?, ?, ?, ?, ?, ?, 'PDF exportado', ?)`).run(
+    createId(),
+    entry.id,
+    entry.status,
+    entry.status,
+    entry.current_revision,
+    entry.approved_hash || '',
+    actor.name,
+    actor.role,
+    Date.now()
+  );
+}
+
+export function getRdoAttachment(db: RdoDatabase, attachmentId: string): RdoAttachment {
   ensureRdoSchema(db);
   const attachment = db
     .prepare('SELECT * FROM rdo_attachments WHERE id = ? AND removed_at IS NULL')
     .get(attachmentId) as RdoAttachment | undefined;
   if (!attachment) throw new Error('Evidence not found');
-  const entry = attachment.entry_id ? getRdoEntry(db, attachment.entry_id) : null;
-  if (!entry || entry.status !== 'draft')
-    throw new Error('Evidence can only be removed while the field report is a draft');
-  db.prepare('UPDATE rdo_attachments SET removed_at = ? WHERE id = ?').run(Date.now(), attachmentId);
-  db.prepare(`INSERT INTO rdo_audit_events
-    (id, entry_id, event_type, from_status, to_status, revision_number, content_hash, actor_name, actor_role, note, created_at)
-    VALUES (?, ?, 'attachment_removed', 'draft', 'draft', ?, '', ?, ?, ?, ?)`).run(
-    createId(),
-    entry.id,
-    entry.current_revision,
-    actor.name,
-    actor.role,
-    attachment.original_name,
-    Date.now()
-  );
   return attachment;
 }
