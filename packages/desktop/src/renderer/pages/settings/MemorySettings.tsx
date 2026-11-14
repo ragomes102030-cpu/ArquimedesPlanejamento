@@ -4,7 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { ErrorInfo, ReactNode, useState } from 'react';
+import React, { useState } from 'react';
+import type { ErrorInfo, ReactNode } from 'react';
 import { getSiderTooltipProps } from '@renderer/utils/ui/siderTooltip';
 import SiderMemoryEntry from '@/renderer/components/layout/Sider/SiderMemoryEntry';
 

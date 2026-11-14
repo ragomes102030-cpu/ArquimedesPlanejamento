@@ -1,5 +1,6 @@
 import classNames from 'classnames';
-import React, { ErrorInfo, ReactNode } from 'react';
+import React from 'react';
+import type { ErrorInfo, ReactNode } from 'react';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import {
   SettingsTabNavigateProvider,

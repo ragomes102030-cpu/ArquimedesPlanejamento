@@ -32,7 +32,6 @@ This release establishes Arquimedes visual identity and introduces a memory syst
 
 ---
 
-
 ## [2.2.2](https://github.com/iOfficeAI/AionUi/compare/v2.2.1...v2.2.2) (2026-09-09)
 
 ### Desktop

@@ -20,7 +20,10 @@ export function createRdoPdfExporter(createPage: () => PdfPage): RdoPdfExporter 
         }
       };
       const result = queue.then(run, run);
-      queue = result.then((): void => undefined, (): void => undefined);
+      queue = result.then(
+        (): void => undefined,
+        (): void => undefined
+      );
       return result;
     },
   };

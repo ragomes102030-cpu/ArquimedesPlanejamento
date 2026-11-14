@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  buildCanonicalRdoSnapshot,
-  buildEvidenceManifest,
-} from '@process/task/rdo/canonicalSnapshot';
+import { buildCanonicalRdoSnapshot, buildEvidenceManifest } from '@process/task/rdo/canonicalSnapshot';
 import type { RdoAttachment, RdoSnapshotInput } from '@/common/rdo/rdoTypes';
 
 const snapshot = (overrides: Partial<RdoSnapshotInput> = {}): RdoSnapshotInput => ({

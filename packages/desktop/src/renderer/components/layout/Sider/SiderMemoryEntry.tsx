@@ -9,7 +9,8 @@ import React, { useState } from 'react';
 import { Button, Input, Tooltip } from '@arco-design/web-react';
 import { BookOpen, Right } from '@icon-park/react';
 import { useTranslation } from 'react-i18next';
-import { cleanupSiderTooltips, getSiderTooltipProps } from '@renderer/utils/ui/siderTooltip';
+import { cleanupSiderTooltips } from '@renderer/utils/ui/siderTooltip';
+import type { getSiderTooltipProps } from '@renderer/utils/ui/siderTooltip';
 
 interface SiderMemoryEntryProps {
   isMobile: boolean;

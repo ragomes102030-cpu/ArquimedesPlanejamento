@@ -24,7 +24,16 @@ describe('RDO attachment store', () => {
     const root = mkdtempSync(join(tmpdir(), 'rdo-evidence-'));
     roots.push(root);
     const store = createAttachmentStore(root);
-    expect(() => store.write({ id: 'bad', originalName: 'x.jpg', declaredMime: 'image/jpeg', bytes: Buffer.from('MZ') })).toThrow(/content/i);
-    expect(() => store.write({ id: 'large', originalName: 'x.pdf', declaredMime: 'application/pdf', bytes: Buffer.alloc(10 * 1024 * 1024 + 1) })).toThrow(/10 MiB/i);
+    expect(() =>
+      store.write({ id: 'bad', originalName: 'x.jpg', declaredMime: 'image/jpeg', bytes: Buffer.from('MZ') })
+    ).toThrow(/content/i);
+    expect(() =>
+      store.write({
+        id: 'large',
+        originalName: 'x.pdf',
+        declaredMime: 'application/pdf',
+        bytes: Buffer.alloc(10 * 1024 * 1024 + 1),
+      })
+    ).toThrow(/10 MiB/i);
   });
 });
