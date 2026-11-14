@@ -197,6 +197,15 @@ export type TransitionRdoInput = {
   reason?: string;
 };
 
+export type AddRdoAttachmentInput = {
+  entry_id: string;
+  original_name: string;
+  mime_type: RdoAttachment['mime_type'];
+  base64: string;
+  caption?: string;
+  actor: RdoActor;
+};
+
 export function buildRdoReportMission(entry: RdoEntry, services: RdoReportService[]): string {
   const serviceDetails =
     services.length === 0
@@ -275,5 +284,8 @@ export type RdoAPI = {
   save: (input: SaveRdoEntryInput) => Promise<RdoEntry>;
   detail: (entryId: string) => Promise<RdoDetail>;
   transition: (input: TransitionRdoInput) => Promise<RdoDetail>;
+  exportPdf: (entryId: string) => Promise<{ filename: string; base64: string }>;
+  addAttachment: (input: AddRdoAttachmentInput) => Promise<RdoAttachment>;
+  removeAttachment: (attachmentId: string, actor: RdoActor) => Promise<void>;
   generateReport: (input: GenerateRdoReportInput) => Promise<Task>;
 };

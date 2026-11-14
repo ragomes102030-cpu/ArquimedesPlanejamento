@@ -1865,6 +1865,20 @@ This release establishes Arquimedes visual identity and introduces a memory syst
 
 # Changelog
 
+## [2.5.0](https://github.com/ragomes102030-cpu/ArquimedesPlanejamento/compare/v2.4.9...v2.5.0) (2026-11-14)
+
+### Kanban e Diario de Obra
+
+- Consolida automaticamente no Diario os apontamentos do Kanban registrados na mesma data, preservando quantidades nao medidas como nulas.
+- Adiciona revisoes auditaveis, aprovacao interna simples por nome e funcao, congelamento por SHA-256 e reabertura com justificativa obrigatoria.
+- Permite anexar fotos JPEG/PNG/WebP e documentos PDF, com validacao do conteudo, limite de 10 MiB e armazenamento por identificador interno.
+- Exporta PDF do rascunho ou da revisao aprovada congelada.
+- Mantem os dados da 2.4.9 por migracao SQLite aditiva e idempotente.
+
+Esta versao mantem o fluxo deliberadamente simples: nao adiciona certificado digital, ICP-Brasil, modo offline, ERP, FVS/FVM, planta ou BIM.
+
+---
+
 ## [2.2.2](https://github.com/iOfficeAI/AionUi/compare/v2.2.1...v2.2.2) (2026-09-09)
 
 ### Desktop

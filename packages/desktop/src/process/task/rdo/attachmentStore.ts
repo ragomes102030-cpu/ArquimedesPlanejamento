@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { extname, join, resolve, sep } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 
 export const RDO_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
 export type AllowedRdoMime = 'image/jpeg' | 'image/png' | 'image/webp' | 'application/pdf';

@@ -284,5 +284,19 @@
       "desktopOnly": "Agent report generation is available in the desktop app. The diary can be filled from the WebUI.",
       "saveBeforeReport": "Save the diary before generating a report."
     }
+  },
+  "rdo": {
+    "actorRequired": "Enter the responsible person name and role.",
+    "actorName": "Responsible person name",
+    "actorRole": "Role",
+    "reasonRequired": "Enter the reason for reopening.",
+    "reopenReason": "Required reopening reason",
+    "approved": "Diary approved and frozen.",
+    "reopened": "Diary reopened for revision.",
+    "approve": "Approve and freeze",
+    "reopen": "Reopen with reason",
+    "exportPdf": "Download PDF",
+    "addEvidence": "Add photo or PDF",
+    "evidenceAdded": "Evidence added."
   }
 }

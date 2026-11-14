@@ -20,5 +20,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const rdoHttpApi: RdoAPI = {
   list: (boardId) => request(`/entries?board_id=${encodeURIComponent(boardId)}`),
   save: (input) => request('/entries', { method: 'POST', body: JSON.stringify(input) }),
+  detail: (entryId) => request(`/entries/${encodeURIComponent(entryId)}`),
+  transition: (input) =>
+    request(`/entries/${encodeURIComponent(input.entry_id)}/transition`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  exportPdf: (_entryId) => Promise.reject(new Error('A exportaÃ§Ã£o PDF estÃ¡ disponÃ­vel no aplicativo desktop.')),
+  addAttachment: (_input) =>
+    Promise.reject(new Error('O envio de evidÃªncias estÃ¡ disponÃ­vel no aplicativo desktop.')),
+  removeAttachment: (_attachmentId, _actor) =>
+    Promise.reject(new Error('A remoÃ§Ã£o de evidÃªncias estÃ¡ disponÃ­vel no aplicativo desktop.')),
   generateReport: (_input): Promise<Task> => Promise.reject(new Error(FIELD_DESKTOP_ONLY)),
 };

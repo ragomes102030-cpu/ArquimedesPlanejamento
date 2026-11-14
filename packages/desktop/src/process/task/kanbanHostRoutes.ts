@@ -28,8 +28,8 @@ import {
 } from './kanbanRepository';
 import { ensureTaskSchema } from './taskRepository';
 import type { CreateKanbanDailyLogInput } from '@/common/kanban/kanbanTypes';
-import type { SaveRdoEntryInput } from '@/common/rdo/rdoTypes';
-import { ensureRdoSchema, listRdoEntries, saveRdoEntry } from './rdoRepository';
+import type { SaveRdoEntryInput, TransitionRdoInput } from '@/common/rdo/rdoTypes';
+import { ensureRdoSchema, getRdoDetail, listRdoEntries, saveRdoEntry, transitionRdo } from './rdoRepository';
 
 const PREFIX = '/api/kanban';
 const RDO_PREFIX = '/api/rdo';
@@ -200,6 +200,21 @@ export function createKanbanHostRoutes(
         return true;
       }
 
+      const rdoDetailMatch = route.match(/^\/entries\/([^/]+)$/);
+      if (rdoRoute && rdoDetailMatch && method === 'GET') {
+        sendJson(res, 200, { data: getRdoDetail(db, decodeURIComponent(rdoDetailMatch[1])) });
+        return true;
+      }
+
+      const rdoTransitionMatch = route.match(/^\/entries\/([^/]+)\/transition$/);
+      if (rdoRoute && rdoTransitionMatch && method === 'POST') {
+        const input = JSON.parse((await readBody(req)) || '{}') as TransitionRdoInput;
+        sendJson(res, 200, {
+          data: transitionRdo(db, { ...input, entry_id: decodeURIComponent(rdoTransitionMatch[1]) }),
+        });
+        return true;
+      }
+
       if (rdoRoute) {
         sendJson(res, 404, {
           success: false,
@@ -256,7 +271,12 @@ export function createKanbanHostRoutes(
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error('[Kanban] WebUI request failed:', message);
-      sendJson(res, 400, { success: false, error: message, code: 'KANBAN_REQUEST_FAILED' });
+      const conflict = /conflict/i.test(message);
+      sendJson(res, conflict ? 409 : 400, {
+        success: false,
+        error: message,
+        code: conflict ? 'RDO_CONFLICT' : 'KANBAN_REQUEST_FAILED',
+      });
       return true;
     }
   };
