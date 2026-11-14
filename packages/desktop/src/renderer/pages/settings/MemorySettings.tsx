@@ -29,9 +29,7 @@ class MemoryErrorBoundary extends React.Component<{ children: ReactNode }, { has
       return (
         <div className='flex flex-col h-full overflow-hidden p-24px text-center'>
           <div className='text-t-danger text-14px font-medium'>Não foi possível carregar as Memórias.</div>
-          <div className='text-t-secondary text-12px mt-4px'>
-            O restante das Configurações continua disponível.
-          </div>
+          <div className='text-t-secondary text-12px mt-4px'>O restante das Configurações continua disponível.</div>
         </div>
       );
     }

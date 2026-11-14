@@ -124,7 +124,9 @@ class SettingsErrorBoundary extends React.Component<{ children: ReactNode }, { h
     if (this.state.hasError) {
       return (
         <div className='flex flex-col h-full overflow-hidden p-24px text-center'>
-          <div className='text-t-danger text-14px font-medium'>Não foi possível carregar esta página de Configurações.</div>
+          <div className='text-t-danger text-14px font-medium'>
+            Não foi possível carregar esta página de Configurações.
+          </div>
           <div className='text-t-secondary text-12px mt-4px'>
             Tente recarregar o app. Se o problema persistir, reporte o erro.
           </div>
