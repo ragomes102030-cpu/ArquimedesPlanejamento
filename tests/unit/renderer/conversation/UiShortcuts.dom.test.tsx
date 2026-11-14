@@ -464,14 +464,14 @@ describe('existing conversation search shortcuts', () => {
     expect(event.defaultPrevented).toBe(false);
   });
 
-  it('opens global search with Cmd/Ctrl+Shift+F on desktop', () => {
+  it('opens global search with Cmd/Ctrl+K on desktop', () => {
     render(
       <ConversationSearchPopover
         renderTrigger={({ isActive }) => <div data-testid='global-search-state'>{String(isActive)}</div>}
       />
     );
 
-    const event = dispatchShortcut(document.body, { key: 'f', metaKey: true, shiftKey: true });
+    const event = dispatchShortcut(document.body, { key: 'k', metaKey: true });
 
     expect(screen.getByTestId('global-search-state')).toHaveTextContent('true');
     expect(event.defaultPrevented).toBe(true);
@@ -487,7 +487,7 @@ describe('existing conversation search shortcuts', () => {
     editor.className = 'monaco-editor';
     document.body.appendChild(editor);
 
-    const event = dispatchShortcut(editor, { key: 'f', metaKey: true, shiftKey: true });
+    const event = dispatchShortcut(editor, { key: 'k', metaKey: true });
 
     expect(screen.getByTestId('global-search-state')).toHaveTextContent('false');
     expect(event.defaultPrevented).toBe(false);
@@ -502,7 +502,7 @@ describe('existing conversation search shortcuts', () => {
     const input = document.createElement('textarea');
     document.body.appendChild(input);
 
-    const event = dispatchShortcut(input, { key: 'f', metaKey: true, shiftKey: true });
+    const event = dispatchShortcut(input, { key: 'k', metaKey: true });
 
     expect(screen.getByTestId('global-search-state')).toHaveTextContent('true');
     expect(event.defaultPrevented).toBe(true);
@@ -516,7 +516,7 @@ describe('existing conversation search shortcuts', () => {
       />
     );
 
-    const event = dispatchShortcut(document.body, { key: 'f', metaKey: true, shiftKey: true });
+    const event = dispatchShortcut(document.body, { key: 'k', metaKey: true });
 
     expect(screen.getByTestId('global-search-state')).toHaveTextContent('false');
     expect(event.defaultPrevented).toBe(false);
@@ -546,7 +546,7 @@ describe('existing conversation search shortcuts', () => {
       />
     );
 
-    const event = dispatchShortcut(document.body, { key: 'f', metaKey: true, shiftKey: true });
+    const event = dispatchShortcut(document.body, { key: 'k', metaKey: true });
 
     expect(screen.getByTestId('global-search-state')).toHaveTextContent('false');
     expect(event.defaultPrevented).toBe(false);
