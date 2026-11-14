@@ -34,14 +34,35 @@ export type RdoEntry = {
   linked_card_ids: string[];
   report_task_id: string | null;
   report_assistant_id: string | null;
+  status: RdoStatus;
+  current_revision: number;
+  approved_revision: number | null;
+  approved_by_name: string | null;
+  approved_by_role: string | null;
+  approved_at: number | null;
+  approved_hash: string | null;
+  approved_snapshot_json: string | null;
   created_at: number;
   updated_at: number;
 };
 
 export type SaveRdoEntryInput = Omit<
   RdoEntry,
-  'id' | 'project_name' | 'report_task_id' | 'report_assistant_id' | 'created_at' | 'updated_at'
-> & { id?: string };
+  | 'id'
+  | 'project_name'
+  | 'report_task_id'
+  | 'report_assistant_id'
+  | 'status'
+  | 'current_revision'
+  | 'approved_revision'
+  | 'approved_by_name'
+  | 'approved_by_role'
+  | 'approved_at'
+  | 'approved_hash'
+  | 'approved_snapshot_json'
+  | 'created_at'
+  | 'updated_at'
+> & { id?: string; expected_revision?: number; expected_status?: RdoStatus; actor?: RdoActor };
 
 export type GenerateRdoReportInput = {
   entry_id: string;
@@ -61,6 +82,8 @@ export type RdoReportService = {
     progress_percent: number | null;
   };
   logs: Array<{
+    id?: string;
+    idempotency_key?: string;
     work_date: string;
     location: string | null;
     quantity: number | null;
@@ -157,6 +180,23 @@ export type RdoAuditEvent = {
   created_at: number;
 };
 
+export type RdoDetail = {
+  entry: RdoEntry;
+  services: RdoReportService[];
+  attachments: RdoAttachment[];
+  revisions: RdoRevision[];
+  audit: RdoAuditEvent[];
+};
+
+export type TransitionRdoInput = {
+  entry_id: string;
+  action: 'approve' | 'reopen';
+  expected_revision: number;
+  expected_status: RdoStatus;
+  actor: RdoActor;
+  reason?: string;
+};
+
 export function buildRdoReportMission(entry: RdoEntry, services: RdoReportService[]): string {
   const serviceDetails =
     services.length === 0
@@ -233,5 +273,7 @@ Finalize com "Relatório gerado a partir dos apontamentos disponíveis; requer c
 export type RdoAPI = {
   list: (boardId: string) => Promise<RdoEntry[]>;
   save: (input: SaveRdoEntryInput) => Promise<RdoEntry>;
+  detail: (entryId: string) => Promise<RdoDetail>;
+  transition: (input: TransitionRdoInput) => Promise<RdoDetail>;
   generateReport: (input: GenerateRdoReportInput) => Promise<Task>;
 };
