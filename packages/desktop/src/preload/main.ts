@@ -12,6 +12,7 @@ import '@sentry/electron/preload';
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { ADAPTER_BRIDGE_EVENT_KEY } from '../common/adapter/constant';
 import type { KanbanAPI } from '../common/kanban/kanbanTypes';
+import type { RdoAPI } from '../common/rdo/rdoTypes';
 
 /**
  * @description 注入到renderer进程中, 用于与main进程通信
@@ -85,6 +86,13 @@ const kanbanAPI: KanbanAPI = {
   deleteColumn: (input) => ipcRenderer.invoke('kanban:column:delete', input.id),
 };
 contextBridge.exposeInMainWorld('kanbanAPI', kanbanAPI);
+
+const rdoAPI: RdoAPI = {
+  list: (boardId) => ipcRenderer.invoke('rdo:list', boardId),
+  save: (input) => ipcRenderer.invoke('rdo:entry:save', input),
+  generateReport: (input) => ipcRenderer.invoke('rdo:report:generate', input),
+};
+contextBridge.exposeInMainWorld('rdoAPI', rdoAPI);
 
 // Synchronously fetch the aioncore port and expose it to the renderer
 // via contextBridge (direct window assignment is invisible under contextIsolation).

@@ -512,7 +512,11 @@ export function deleteKanbanBoard(db: KanbanDatabase, id: string): DeleteKanbanB
         )
         .get(id) as { count: number }
     ).count;
-    if (fieldEntryCount > 0) {
+    const hasRdoTable = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'rdo_entries'").get();
+    const rdoEntryCount = hasRdoTable
+      ? ((db.prepare('SELECT COUNT(*) AS count FROM rdo_entries WHERE board_id = ?').get(id) as { count: number }).count)
+      : 0;
+    if (fieldEntryCount + rdoEntryCount > 0) {
       throw new Error('This board has field entries. Archive it instead to preserve the field history.');
     }
     const count = (table: 'kanban_cards' | 'kanban_roles' | 'kanban_columns'): number =>

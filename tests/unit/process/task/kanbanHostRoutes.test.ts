@@ -24,6 +24,7 @@ import {
   type KanbanDatabase,
 } from '@process/task/kanbanRepository';
 import { ensureTaskSchema } from '@process/task/taskRepository';
+import { ensureRdoSchema } from '@process/task/rdoRepository';
 
 type Captured = { status: number; body: string };
 
@@ -64,6 +65,7 @@ const dir = mkdtempSync(path.join(tmpdir(), 'kanban-host-'));
 let db: KanbanDatabase;
 let handler: ReturnType<typeof createKanbanHostRoutes>;
 let cardId: string;
+let boardId: string;
 
 async function call(url: string, method = 'GET', body?: unknown) {
   const { res, captured } = fakeRes();
@@ -77,6 +79,8 @@ describe('rotas do Kanban servidas pelo desktop para o WebUI', () => {
     ensureTaskSchema(db);
     ensureKanbanSchema(db);
     const board = listKanbanBoards(db)[0];
+    boardId = board.id;
+    ensureRdoSchema(db);
     cardId = createKanbanCard(db, {
       board_id: board.id,
       column_id: board.columns.find((c) => c.key === 'scheduled')!.id,
@@ -212,6 +216,31 @@ describe('rotas do Kanban servidas pelo desktop para o WebUI', () => {
 
     expect(status).toBe(404);
     expect(payload.error).toContain('not available over WebUI');
+  });
+
+  it('12. grava e lista um Diário de Campo pelo WebUI autenticado', async () => {
+    const saved = await call('/api/rdo/entries', 'POST', {
+      board_id: boardId,
+      work_date: '2026-11-14',
+      weather: 'clear',
+      weather_notes: 'Tempo aberto',
+      workforce_count: 5,
+      workforce_notes: 'Equipe de alvenaria',
+      work_summary: 'Execução de demonstração',
+      equipment: '',
+      materials: '',
+      occurrences: '',
+      safety_notes: '',
+      visitors: '',
+      linked_card_ids: [cardId],
+    });
+    const listed = await call(`/api/rdo/entries?board_id=${encodeURIComponent(boardId)}`);
+
+    expect(saved.status).toBe(200);
+    expect(saved.payload.data.project_name).toBe('Kanban');
+    expect(listed.status).toBe(200);
+    expect(listed.payload.data).toHaveLength(1);
+    expect(listed.payload.data[0].linked_card_ids).toEqual([cardId]);
   });
 });
 

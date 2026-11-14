@@ -1,5 +1,6 @@
 import type { ListTasksOptions, Task } from '@/common/task/taskTypes';
 import type { KanbanAPI } from '@/common/kanban/kanbanTypes';
+import type { RdoAPI } from '@/common/rdo/rdoTypes';
 
 // WebUI 状态接口 / WebUI status interface
 export interface WebUIStatus {
@@ -114,5 +115,7 @@ declare global {
     };
     /** Activity Kanban bridge; absent in WebUI browser mode. */
     kanbanAPI?: KanbanAPI;
+    /** Field report API; browser mode uses authenticated WebUI routes. */
+    rdoAPI?: RdoAPI;
   }
 }

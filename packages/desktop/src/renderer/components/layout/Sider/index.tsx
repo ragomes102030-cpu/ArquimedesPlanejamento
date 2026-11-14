@@ -234,6 +234,15 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               onClick={() => navigateFromSider('/kanban')}
             />
             <SiderNavEntry
+              label={t('agentTasks.rdo.title', { defaultValue: 'Diário de Campo' })}
+              icon={<BookOpen theme='outline' size='16' fill='currentColor' />}
+              isActive={pathname.startsWith('/rdo')}
+              collapsed={collapsed}
+              isMobile={isMobile}
+              siderTooltipProps={siderTooltipProps}
+              onClick={() => navigateFromSider('/rdo')}
+            />
+            <SiderNavEntry
               label={t('common.skills')}
               icon={<Lightning theme='outline' size='16' fill='currentColor' />}
               isActive={pathname.startsWith('/settings/skills')}

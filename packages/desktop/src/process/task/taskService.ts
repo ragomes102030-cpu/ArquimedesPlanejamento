@@ -15,6 +15,11 @@ import { dirname } from 'node:path';
 import BetterSqlite3 from 'better-sqlite3';
 import { ipcMain } from 'electron';
 import type { CreateTaskInput, ListTasksOptions } from '@/common/task/taskTypes';
+import {
+  buildRdoReportMission,
+  type GenerateRdoReportInput,
+  type SaveRdoEntryInput,
+} from '@/common/rdo/rdoTypes';
 import type {
   CreateKanbanBoardInput,
   CreateKanbanCardInput,
@@ -49,6 +54,7 @@ import {
   updateKanbanColumn,
   updateKanbanRole,
 } from './kanbanRepository';
+import { getRdoEntry, linkRdoReportTask, listRdoEntries, saveRdoEntry, ensureRdoSchema } from './rdoRepository';
 import { TaskRunner } from './taskRunner';
 
 export type TaskServiceOptions = {
@@ -89,6 +95,9 @@ const KANBAN_CHANNELS = [
   'kanban:column:create',
   'kanban:column:update',
   'kanban:column:delete',
+  'rdo:list',
+  'rdo:entry:save',
+  'rdo:report:generate',
 ] as const;
 const CHANNELS = [...TASK_CHANNELS, ...KANBAN_CHANNELS] as const;
 
@@ -111,6 +120,7 @@ export function startTaskService(options: TaskServiceOptions): TaskServiceHandle
   const db: TaskDatabase = new BetterSqlite3(options.dbPath);
   ensureTaskSchema(db);
   ensureKanbanSchema(db);
+  ensureRdoSchema(db);
 
   const runner = new TaskRunner({
     db,
@@ -177,6 +187,59 @@ export function startTaskService(options: TaskServiceOptions): TaskServiceHandle
   ipcMain.handle('kanban:column:create', (_event, input: CreateKanbanColumnInput) => createKanbanColumn(db, input));
   ipcMain.handle('kanban:column:update', (_event, input: UpdateKanbanColumnInput) => updateKanbanColumn(db, input));
   ipcMain.handle('kanban:column:delete', (_event, id: string) => deleteKanbanColumn(db, id));
+
+  ipcMain.handle('rdo:list', (_event, boardId: string) => listRdoEntries(db, boardId));
+  ipcMain.handle('rdo:entry:save', (_event, input: SaveRdoEntryInput) => saveRdoEntry(db, input));
+  ipcMain.handle('rdo:report:generate', (_event, input: GenerateRdoReportInput) => {
+    if (!input.assistant_id.trim()) throw new Error('Choose an agent to generate the report');
+    const entry = getRdoEntry(db, input.entry_id);
+    if (!entry) throw new Error('Field report not found');
+    const currentTask = entry.report_task_id ? getTask(db, entry.report_task_id) : null;
+    if (currentTask && (currentTask.status === 'pending' || currentTask.status === 'running')) {
+      throw new Error('A report is already being generated for this field report');
+    }
+
+    const board = listKanbanBoards(db).find((item) => item.id === entry.board_id);
+    if (!board) throw new Error('Kanban board for this field report was not found');
+    const services = board.cards
+      .filter((card) => entry.linked_card_ids.includes(card.id))
+      .map((card) => ({
+        title: card.title,
+        description: card.description,
+        status:
+          board.columns.find((column) => column.id === card.column_id)?.name ||
+          board.columns.find((column) => column.id === card.column_id)?.key ||
+          card.column_id,
+        assignee: card.assignee,
+        planned_quantity: card.planned_quantity,
+        quantity_unit: card.quantity_unit,
+        production_summary: card.production_summary,
+        logs: listKanbanDailyLogs(db, card.id)
+          .filter((log) => log.work_date === entry.work_date)
+          .map((log) => ({
+            work_date: log.work_date,
+            location: log.location,
+            quantity: log.quantity,
+            unit: log.unit,
+            crew: log.crew,
+            hours: log.hours,
+            equipment: log.equipment,
+            occurrence: log.occurrence,
+          })),
+      }));
+    const mission = buildRdoReportMission(entry, services);
+    const task = db.transaction(() => {
+      const created = createTask(db, {
+        mission,
+        assistant_id: input.assistant_id,
+        workspace: options.defaultWorkspace,
+      });
+      linkRdoReportTask(db, entry.id, created.id, input.assistant_id);
+      return created;
+    })();
+    void runner.runNext();
+    return task;
+  });
 
   runner.start();
 

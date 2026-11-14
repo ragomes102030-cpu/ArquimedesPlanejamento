@@ -28,8 +28,11 @@ import {
 } from './kanbanRepository';
 import { ensureTaskSchema } from './taskRepository';
 import type { CreateKanbanDailyLogInput } from '@/common/kanban/kanbanTypes';
+import type { SaveRdoEntryInput } from '@/common/rdo/rdoTypes';
+import { ensureRdoSchema, listRdoEntries, saveRdoEntry } from './rdoRepository';
 
 const PREFIX = '/api/kanban';
+const RDO_PREFIX = '/api/rdo';
 /** A card payload is small; anything larger is a client bug, not a real request. */
 const MAX_BODY_BYTES = 1024 * 1024;
 
@@ -162,10 +165,12 @@ export function createKanbanHostRoutes(
 
   return async (req, res) => {
     const url = req.url ?? '';
-    if (!url.startsWith(PREFIX)) return false;
+    const rdoRoute = url.startsWith(RDO_PREFIX);
+    if (!rdoRoute && !url.startsWith(PREFIX)) return false;
 
     // Strip the query string: the list call carries ?include_archived=true.
-    const route = url.slice(PREFIX.length).split('?')[0];
+    const prefix = rdoRoute ? RDO_PREFIX : PREFIX;
+    const route = url.slice(prefix.length).split('?')[0];
     const method = req.method ?? 'GET';
 
     if (allowRemote) {
@@ -182,6 +187,27 @@ export function createKanbanHostRoutes(
 
     try {
       const db = resolveDb();
+
+      if (rdoRoute && route === '/entries' && method === 'GET') {
+        const boardId = new URL(url, 'http://localhost').searchParams.get('board_id') ?? '';
+        sendJson(res, 200, { data: listRdoEntries(db, boardId) });
+        return true;
+      }
+
+      if (rdoRoute && route === '/entries' && method === 'POST') {
+        const input = JSON.parse((await readBody(req)) || '{}') as SaveRdoEntryInput;
+        sendJson(res, 200, { data: saveRdoEntry(db, input) });
+        return true;
+      }
+
+      if (rdoRoute) {
+        sendJson(res, 404, {
+          success: false,
+          error: `RDO route not available over WebUI: ${method} ${route}`,
+          code: 'NOT_FOUND',
+        });
+        return true;
+      }
 
       if (route === '/board' && method === 'GET') {
         const includeArchived = /[?&]include_archived=true/.test(url);
@@ -249,6 +275,7 @@ export function createKanbanDbProvider(dataDir: string): () => KanbanDatabase {
       db = new Database(path.join(dataDir, 'tasks.db'));
       ensureTaskSchema(db);
       ensureKanbanSchema(db);
+      ensureRdoSchema(db);
     }
     return db;
   };
