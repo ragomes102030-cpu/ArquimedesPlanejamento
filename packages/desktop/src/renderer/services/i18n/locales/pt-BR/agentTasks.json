@@ -284,5 +284,22 @@
       "desktopOnly": "A geração por agente está disponível no app desktop. O preenchimento do diário pode ser feito pelo WebUI.",
       "saveBeforeReport": "Salve o diário antes de pedir a geração do relatório."
     }
+  },
+  "rdo": {
+    "actorRequired": "Informe nome e função do responsável.",
+    "actorName": "Nome do responsável",
+    "actorRole": "Função",
+    "reasonRequired": "Informe o motivo da reabertura.",
+    "reopenReason": "Motivo obrigatório da reabertura",
+    "approved": "Diário aprovado e congelado.",
+    "reopened": "Diário reaberto para revisão.",
+    "approve": "Aprovar e congelar",
+    "reopen": "Reabrir com justificativa",
+    "exportPdf": "Baixar PDF",
+    "addEvidence": "Adicionar foto ou PDF",
+    "evidenceAdded": "Evidência adicionada.",
+    "openEvidence": "Abrir",
+    "downloadEvidence": "Baixar",
+    "removeEvidence": "Remover"
   }
 }

@@ -9,6 +9,13 @@ import type { Task } from '@/common/task/taskTypes';
 export const RDO_WEATHER_OPTIONS = ['clear', 'cloudy', 'rain', 'wind', 'other'] as const;
 export type RdoWeather = (typeof RDO_WEATHER_OPTIONS)[number];
 
+export type RdoStatus = 'draft' | 'approved';
+
+export type RdoActor = {
+  name: string;
+  role: string;
+};
+
 export type RdoEntry = {
   id: string;
   board_id: string;
@@ -27,14 +34,35 @@ export type RdoEntry = {
   linked_card_ids: string[];
   report_task_id: string | null;
   report_assistant_id: string | null;
+  status: RdoStatus;
+  current_revision: number;
+  approved_revision: number | null;
+  approved_by_name: string | null;
+  approved_by_role: string | null;
+  approved_at: number | null;
+  approved_hash: string | null;
+  approved_snapshot_json: string | null;
   created_at: number;
   updated_at: number;
 };
 
 export type SaveRdoEntryInput = Omit<
   RdoEntry,
-  'id' | 'project_name' | 'report_task_id' | 'report_assistant_id' | 'created_at' | 'updated_at'
-> & { id?: string };
+  | 'id'
+  | 'project_name'
+  | 'report_task_id'
+  | 'report_assistant_id'
+  | 'status'
+  | 'current_revision'
+  | 'approved_revision'
+  | 'approved_by_name'
+  | 'approved_by_role'
+  | 'approved_at'
+  | 'approved_hash'
+  | 'approved_snapshot_json'
+  | 'created_at'
+  | 'updated_at'
+> & { id?: string; expected_revision?: number; expected_status?: RdoStatus; actor?: RdoActor };
 
 export type GenerateRdoReportInput = {
   entry_id: string;
@@ -54,6 +82,8 @@ export type RdoReportService = {
     progress_percent: number | null;
   };
   logs: Array<{
+    id?: string;
+    idempotency_key?: string;
     work_date: string;
     location: string | null;
     quantity: number | null;
@@ -63,6 +93,117 @@ export type RdoReportService = {
     equipment: string | null;
     occurrence: string | null;
   }>;
+};
+
+export type RdoAttachment = {
+  id: string;
+  board_id: string;
+  work_date: string;
+  entry_id: string | null;
+  card_id: string | null;
+  daily_log_id: string | null;
+  original_name: string;
+  mime_type: 'image/jpeg' | 'image/png' | 'image/webp' | 'application/pdf';
+  size_bytes: number;
+  sha256: string;
+  caption: string;
+  location: string | null;
+  created_by_name: string;
+  created_by_role: string;
+  created_at: number;
+  removed_at: number | null;
+};
+
+export type RdoEvidenceManifestItem = Pick<
+  RdoAttachment,
+  'id' | 'original_name' | 'mime_type' | 'size_bytes' | 'sha256' | 'caption' | 'location' | 'card_id' | 'daily_log_id'
+>;
+
+export type RdoSnapshotEntry = {
+  id: string;
+  board_id: string;
+  project_name: string;
+  work_date: string;
+  weather: RdoWeather;
+  weather_notes: string;
+  workforce_count: number | null;
+  workforce_notes: string;
+  work_summary: string;
+  equipment: string;
+  materials: string;
+  occurrences: string;
+  safety_notes: string;
+  visitors: string;
+  linked_card_ids: string[];
+};
+
+export type RdoSnapshotInput = {
+  entry: RdoSnapshotEntry;
+  services: RdoReportService[];
+  evidence_manifest: RdoEvidenceManifestItem[];
+};
+
+export type RdoRevision = {
+  id: string;
+  entry_id: string;
+  revision_number: number;
+  snapshot_json: string;
+  content_hash: string;
+  actor_name: string;
+  actor_role: string;
+  reason: string;
+  created_at: number;
+};
+
+export type RdoAuditEventType =
+  | 'created'
+  | 'migrated'
+  | 'saved'
+  | 'approved'
+  | 'reopened'
+  | 'attachment_added'
+  | 'attachment_removed'
+  | 'report_generated'
+  | 'pdf_exported';
+
+export type RdoAuditEvent = {
+  id: string;
+  entry_id: string;
+  event_type: RdoAuditEventType;
+  from_status: RdoStatus | null;
+  to_status: RdoStatus | null;
+  revision_number: number;
+  content_hash: string;
+  actor_name: string;
+  actor_role: string;
+  note: string;
+  created_at: number;
+};
+
+export type RdoDetail = {
+  entry: RdoEntry;
+  services: RdoReportService[];
+  attachments: RdoAttachment[];
+  revisions: RdoRevision[];
+  audit: RdoAuditEvent[];
+};
+
+export type TransitionRdoInput = {
+  entry_id: string;
+  action: 'approve' | 'reopen';
+  expected_revision: number;
+  expected_status: RdoStatus;
+  actor: RdoActor;
+  reason?: string;
+};
+
+export type AddRdoAttachmentInput = {
+  entry_id: string;
+  original_name: string;
+  mime_type: RdoAttachment['mime_type'];
+  base64: string;
+  caption?: string;
+  actor: RdoActor;
 };
 
 export function buildRdoReportMission(entry: RdoEntry, services: RdoReportService[]): string {
@@ -141,5 +282,11 @@ Finalize com "Relatório gerado a partir dos apontamentos disponíveis; requer c
 export type RdoAPI = {
   list: (boardId: string) => Promise<RdoEntry[]>;
   save: (input: SaveRdoEntryInput) => Promise<RdoEntry>;
+  detail: (entryId: string) => Promise<RdoDetail>;
+  transition: (input: TransitionRdoInput) => Promise<RdoDetail>;
+  exportPdf: (entryId: string, actor: RdoActor) => Promise<{ filename: string; base64: string }>;
+  addAttachment: (input: AddRdoAttachmentInput) => Promise<RdoAttachment>;
+  removeAttachment: (attachmentId: string, actor: RdoActor) => Promise<void>;
+  readAttachment: (attachmentId: string) => Promise<{ filename: string; mime_type: string; base64: string }>;
   generateReport: (input: GenerateRdoReportInput) => Promise<Task>;
 };

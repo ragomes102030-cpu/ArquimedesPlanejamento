@@ -90,6 +90,12 @@ contextBridge.exposeInMainWorld('kanbanAPI', kanbanAPI);
 const rdoAPI: RdoAPI = {
   list: (boardId) => ipcRenderer.invoke('rdo:list', boardId),
   save: (input) => ipcRenderer.invoke('rdo:entry:save', input),
+  detail: (entryId) => ipcRenderer.invoke('rdo:entry:detail', entryId),
+  transition: (input) => ipcRenderer.invoke('rdo:entry:transition', input),
+  exportPdf: (entryId, actor) => ipcRenderer.invoke('rdo:pdf:export', entryId, actor),
+  addAttachment: (input) => ipcRenderer.invoke('rdo:attachment:add', input),
+  removeAttachment: (attachmentId, actor) => ipcRenderer.invoke('rdo:attachment:remove', attachmentId, actor),
+  readAttachment: (attachmentId) => ipcRenderer.invoke('rdo:attachment:read', attachmentId),
   generateReport: (input) => ipcRenderer.invoke('rdo:report:generate', input),
 };
 contextBridge.exposeInMainWorld('rdoAPI', rdoAPI);

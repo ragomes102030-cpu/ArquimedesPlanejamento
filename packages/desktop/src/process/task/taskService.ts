@@ -11,14 +11,18 @@
  */
 
 import { mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { dirname, join } from 'node:path';
 import BetterSqlite3 from 'better-sqlite3';
-import { ipcMain } from 'electron';
+import { BrowserWindow, ipcMain } from 'electron';
 import type { CreateTaskInput, ListTasksOptions } from '@/common/task/taskTypes';
 import {
   buildRdoReportMission,
+  type AddRdoAttachmentInput,
+  type RdoActor,
   type GenerateRdoReportInput,
   type SaveRdoEntryInput,
+  type TransitionRdoInput,
 } from '@/common/rdo/rdoTypes';
 import type {
   CreateKanbanBoardInput,
@@ -54,8 +58,21 @@ import {
   updateKanbanColumn,
   updateKanbanRole,
 } from './kanbanRepository';
-import { getRdoEntry, linkRdoReportTask, listRdoEntries, saveRdoEntry, ensureRdoSchema } from './rdoRepository';
+import {
+  addRdoAttachmentMetadata,
+  getRdoDetail,
+  getRdoAttachment,
+  getRdoEntry,
+  linkRdoReportTask,
+  listRdoEntries,
+  recordRdoPdfExport,
+  removeRdoAttachmentMetadata,
+  saveRdoEntry,
+  ensureRdoSchema,
+  transitionRdo,
+} from './rdoRepository';
 import { TaskRunner } from './taskRunner';
+import { buildRdoHtml, createAttachmentStore, createRdoPdfExporter } from './rdo';
 
 export type TaskServiceOptions = {
   /** Absolute path of the task SQLite file. */
@@ -97,6 +114,12 @@ const KANBAN_CHANNELS = [
   'kanban:column:delete',
   'rdo:list',
   'rdo:entry:save',
+  'rdo:entry:detail',
+  'rdo:entry:transition',
+  'rdo:pdf:export',
+  'rdo:attachment:add',
+  'rdo:attachment:remove',
+  'rdo:attachment:read',
   'rdo:report:generate',
 ] as const;
 const CHANNELS = [...TASK_CHANNELS, ...KANBAN_CHANNELS] as const;
@@ -121,6 +144,18 @@ export function startTaskService(options: TaskServiceOptions): TaskServiceHandle
   ensureTaskSchema(db);
   ensureKanbanSchema(db);
   ensureRdoSchema(db);
+  const attachmentStore = createAttachmentStore(join(dirname(options.dbPath), 'rdo-evidence'));
+  const pdfExporter = createRdoPdfExporter(() => {
+    const window = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true } });
+    return {
+      loadHtml: (html) =>
+        window.loadURL(`data:text/html;base64,${Buffer.from(html).toString('base64')}`).then((): void => undefined),
+      printToPdf: () => window.webContents.printToPDF({ printBackground: true, pageSize: 'A4' }),
+      destroy: (): void => {
+        if (!window.isDestroyed()) window.destroy();
+      },
+    };
+  });
 
   const runner = new TaskRunner({
     db,
@@ -190,6 +225,71 @@ export function startTaskService(options: TaskServiceOptions): TaskServiceHandle
 
   ipcMain.handle('rdo:list', (_event, boardId: string) => listRdoEntries(db, boardId));
   ipcMain.handle('rdo:entry:save', (_event, input: SaveRdoEntryInput) => saveRdoEntry(db, input));
+  ipcMain.handle('rdo:entry:detail', (_event, entryId: string) => getRdoDetail(db, entryId));
+  ipcMain.handle('rdo:entry:transition', (_event, input: TransitionRdoInput) => transitionRdo(db, input));
+  ipcMain.handle('rdo:pdf:export', async (_event, entryId: string, actor: RdoActor) => {
+    const detail = getRdoDetail(db, entryId);
+    const revision = detail.revisions.find(
+      (item) => item.revision_number === (detail.entry.approved_revision ?? detail.entry.current_revision)
+    );
+    if (!revision) throw new Error('RDO revision not found');
+    const snapshotJson =
+      detail.entry.status === 'approved' && detail.entry.approved_snapshot_json
+        ? detail.entry.approved_snapshot_json
+        : revision.snapshot_json;
+    const html = buildRdoHtml({
+      status: detail.entry.status,
+      revision: revision.revision_number,
+      hash: detail.entry.approved_hash,
+      approvedBy: detail.entry.approved_by_name
+        ? `${detail.entry.approved_by_name} - ${detail.entry.approved_by_role}`
+        : null,
+      approvedAt: detail.entry.approved_at,
+      snapshot: JSON.parse(snapshotJson),
+    });
+    const bytes = await pdfExporter.export(html);
+    recordRdoPdfExport(db, entryId, actor);
+    return { filename: `RDO-${detail.entry.work_date}.pdf`, base64: Buffer.from(bytes).toString('base64') };
+  });
+  ipcMain.handle('rdo:attachment:add', (_event, input: AddRdoAttachmentInput) => {
+    const id = `evidence-${randomUUID()}`;
+    const stored = attachmentStore.write({
+      id,
+      originalName: input.original_name,
+      declaredMime: input.mime_type,
+      bytes: Buffer.from(input.base64, 'base64'),
+    });
+    try {
+      return addRdoAttachmentMetadata(db, {
+        id,
+        entry_id: input.entry_id,
+        card_id: null,
+        daily_log_id: null,
+        original_name: input.original_name,
+        mime_type: stored.mimeType,
+        size_bytes: stored.sizeBytes,
+        sha256: stored.sha256,
+        caption: input.caption?.trim() || '',
+        location: null,
+        created_by_name: input.actor.name.trim(),
+        created_by_role: input.actor.role.trim(),
+      });
+    } catch (error) {
+      // Physical write already happened; without removing it the disk would
+      // keep an orphan file that no metadata points to.
+      attachmentStore.remove(id, stored.mimeType);
+      throw error;
+    }
+  });
+  ipcMain.handle('rdo:attachment:remove', (_event, attachmentId: string, actor: RdoActor) => {
+    const removed = removeRdoAttachmentMetadata(db, attachmentId, actor);
+    attachmentStore.remove(removed.id, removed.mime_type);
+  });
+  ipcMain.handle('rdo:attachment:read', (_event, attachmentId: string) => {
+    const attachment = getRdoAttachment(db, attachmentId);
+    const bytes = attachmentStore.read(attachment.id, attachment.mime_type);
+    return { filename: attachment.original_name, mime_type: attachment.mime_type, base64: bytes.toString('base64') };
+  });
   ipcMain.handle('rdo:report:generate', (_event, input: GenerateRdoReportInput) => {
     if (!input.assistant_id.trim()) throw new Error('Choose an agent to generate the report');
     const entry = getRdoEntry(db, input.entry_id);
@@ -199,34 +299,7 @@ export function startTaskService(options: TaskServiceOptions): TaskServiceHandle
       throw new Error('A report is already being generated for this field report');
     }
 
-    const board = listKanbanBoards(db).find((item) => item.id === entry.board_id);
-    if (!board) throw new Error('Kanban board for this field report was not found');
-    const services = board.cards
-      .filter((card) => entry.linked_card_ids.includes(card.id))
-      .map((card) => ({
-        title: card.title,
-        description: card.description,
-        status:
-          board.columns.find((column) => column.id === card.column_id)?.name ||
-          board.columns.find((column) => column.id === card.column_id)?.key ||
-          card.column_id,
-        assignee: card.assignee,
-        planned_quantity: card.planned_quantity,
-        quantity_unit: card.quantity_unit,
-        production_summary: card.production_summary,
-        logs: listKanbanDailyLogs(db, card.id)
-          .filter((log) => log.work_date === entry.work_date)
-          .map((log) => ({
-            work_date: log.work_date,
-            location: log.location,
-            quantity: log.quantity,
-            unit: log.unit,
-            crew: log.crew,
-            hours: log.hours,
-            equipment: log.equipment,
-            occurrence: log.occurrence,
-          })),
-      }));
+    const services = getRdoDetail(db, entry.id).services;
     const mission = buildRdoReportMission(entry, services);
     const task = db.transaction(() => {
       const created = createTask(db, {

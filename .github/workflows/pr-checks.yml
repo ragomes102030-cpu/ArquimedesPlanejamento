@@ -94,7 +94,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-14, windows-2022]
+        os: [ubuntu-latest, windows-2022]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -278,12 +278,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: 'macos-arm64'
-            os: 'macos-14'
-            arch: 'arm64'
-            target: '--mac'
-            build_args: '--mac --arm64'
-            unpacked_dir: 'mac-arm64'
           - platform: 'windows-x64'
             os: 'windows-2022'
             arch: 'x64'
@@ -440,7 +434,7 @@ jobs:
           Write-Host "SMOKE INSTALL: windows-x64"
           Write-Host "=========================================="
 
-          $installer = Get-ChildItem -Path out -Filter "AionUi-*-win-*.exe" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          $installer = Get-ChildItem -Path out -Filter "Arquimedes-*-win-*.exe" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
           if (-not $installer) {
             throw "No Windows installer found in out/"
           }
@@ -449,9 +443,9 @@ jobs:
           Start-Process -FilePath $installer.FullName -ArgumentList '/S' -Wait -NoNewWindow
 
           $candidates = @(
-            "$env:LOCALAPPDATA\\Programs\\AionUi\\AionUi.exe",
-            "$env:ProgramFiles\\AionUi\\AionUi.exe",
-            "$env:ProgramFiles(x86)\\AionUi\\AionUi.exe"
+            "$env:LOCALAPPDATA\\Programs\\Arquimedes\\Arquimedes.exe",
+            "$env:ProgramFiles\\Arquimedes\\Arquimedes.exe",
+            "${env:ProgramFiles(x86)}\\Arquimedes\\Arquimedes.exe"
           )
 
           $installedExe = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1

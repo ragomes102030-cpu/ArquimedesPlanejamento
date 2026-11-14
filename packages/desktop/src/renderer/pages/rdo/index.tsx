@@ -2,9 +2,27 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import dayjs from 'dayjs';
 import ReactMarkdown from 'react-markdown';
-import { Button, DatePicker, Empty, Input, InputNumber, Message, Select, Spin, Tag } from '@arco-design/web-react';
+import {
+  Button,
+  DatePicker,
+  Empty,
+  Input,
+  InputNumber,
+  Message,
+  Select,
+  Spin,
+  Tag,
+  Upload,
+} from '@arco-design/web-react';
 import { BookOpen, Plus, Robot, Save } from '@icon-park/react';
-import type { RdoAPI, RdoEntry, RdoWeather, SaveRdoEntryInput } from '@/common/rdo/rdoTypes';
+import type {
+  RdoAPI,
+  RdoAttachment,
+  RdoEntry,
+  RdoReportService,
+  RdoWeather,
+  SaveRdoEntryInput,
+} from '@/common/rdo/rdoTypes';
 import { RDO_WEATHER_OPTIONS } from '@/common/rdo/rdoTypes';
 import type { Task } from '@/common/task/taskTypes';
 import { useAssistantList } from '@renderer/hooks/assistant/useAssistantList';
@@ -72,6 +90,13 @@ const RdoPage: React.FC = () => {
   const [agentId, setAgentId] = useState<string | null>(null);
   const [reportTask, setReportTask] = useState<Task | null>(null);
   const [reportError, setReportError] = useState<string | null>(null);
+  const [actorName, setActorName] = useState('');
+  const [actorRole, setActorRole] = useState('Responsável pela obra');
+  const [reopenReason, setReopenReason] = useState('');
+  const [transitioning, setTransitioning] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [attachments, setAttachments] = useState<RdoAttachment[]>([]);
+  const [dayServices, setDayServices] = useState<RdoReportService[]>([]);
   const api: RdoAPI = typeof window !== 'undefined' && window.rdoAPI ? window.rdoAPI : rdoHttpApi;
 
   useEffect(() => {
@@ -87,7 +112,9 @@ const RdoPage: React.FC = () => {
       setSelectedId((current) => (current && loaded.some((entry) => entry.id === current) ? current : null));
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
-      Message.error(`${t('agentTasks.rdo.loadFailed', { defaultValue: 'Não foi possível carregar os diários.' })} ${detail}`);
+      Message.error(
+        `${t('agentTasks.rdo.loadFailed', { defaultValue: 'Não foi possível carregar os diários.' })} ${detail}`
+      );
     } finally {
       setLoadingEntries(false);
     }
@@ -105,6 +132,24 @@ const RdoPage: React.FC = () => {
       setReportError(null);
     }
   }, [selectedEntry]);
+
+  useEffect(() => {
+    if (!selectedEntry) {
+      setAttachments([]);
+      setDayServices([]);
+      return;
+    }
+    void api
+      .detail(selectedEntry.id)
+      .then((detail) => {
+        setAttachments(detail.attachments);
+        setDayServices(detail.services);
+      })
+      .catch(() => {
+        setAttachments([]);
+        setDayServices([]);
+      });
+  }, [api, selectedEntry?.id]);
 
   useEffect(() => {
     if (!selectedEntry?.report_task_id || !window.taskAPI) {
@@ -150,30 +195,168 @@ const RdoPage: React.FC = () => {
         ...draft,
         board_id: board.id,
         ...(selectedId ? { id: selectedId } : {}),
+        ...(selectedEntry
+          ? { expected_revision: selectedEntry.current_revision, expected_status: selectedEntry.status }
+          : {}),
+        actor: { name: actorName || 'Usuário local', role: actorRole || 'Responsável pela obra' },
       };
       const saved = await api.save(input);
-      setEntries((current) => [saved, ...current.filter((entry) => entry.id !== saved.id)].sort(
-        (left, right) => right.work_date.localeCompare(left.work_date)
-      ));
+      setEntries((current) =>
+        [saved, ...current.filter((entry) => entry.id !== saved.id)].sort((left, right) =>
+          right.work_date.localeCompare(left.work_date)
+        )
+      );
       setSelectedId(saved.id);
       Message.success(t('agentTasks.rdo.saved', { defaultValue: 'Diário salvo.' }));
       return saved;
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
-      Message.error(`${t('agentTasks.rdo.saveFailed', { defaultValue: 'Não foi possível salvar o diário.' })} ${detail}`);
+      Message.error(
+        `${t('agentTasks.rdo.saveFailed', { defaultValue: 'Não foi possível salvar o diário.' })} ${detail}`
+      );
       return null;
     } finally {
       setSaving(false);
     }
   };
 
+  const transitionEntry = async (action: 'approve' | 'reopen') => {
+    if (!selectedEntry) return;
+    if (!actorName.trim() || !actorRole.trim()) {
+      Message.warning(t('agentTasks.rdo.actorRequired', { defaultValue: 'Informe nome e função do responsável.' }));
+      return;
+    }
+    if (action === 'reopen' && !reopenReason.trim()) {
+      Message.warning(t('agentTasks.rdo.reasonRequired', { defaultValue: 'Informe o motivo da reabertura.' }));
+      return;
+    }
+    setTransitioning(true);
+    try {
+      const detail = await api.transition({
+        entry_id: selectedEntry.id,
+        action,
+        expected_revision: selectedEntry.current_revision,
+        expected_status: selectedEntry.status,
+        actor: { name: actorName.trim(), role: actorRole.trim() },
+        reason: action === 'reopen' ? reopenReason.trim() : undefined,
+      });
+      setEntries((current) => current.map((entry) => (entry.id === detail.entry.id ? detail.entry : entry)));
+      setReopenReason('');
+      Message.success(
+        action === 'approve'
+          ? t('agentTasks.rdo.approved', { defaultValue: 'Diário aprovado e congelado.' })
+          : t('agentTasks.rdo.reopened', { defaultValue: 'Diário reaberto para revisão.' })
+      );
+    } catch (error) {
+      Message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setTransitioning(false);
+    }
+  };
+
+  const exportPdf = async () => {
+    if (!selectedEntry) return;
+    if (!actorName.trim() || !actorRole.trim()) {
+      Message.warning(t('agentTasks.rdo.actorRequired', { defaultValue: 'Informe nome e função do responsável.' }));
+      return;
+    }
+    setExportingPdf(true);
+    try {
+      const result = await api.exportPdf(selectedEntry.id, { name: actorName.trim(), role: actorRole.trim() });
+      const binary = atob(result.base64);
+      const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = result.filename;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      Message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setExportingPdf(false);
+    }
+  };
+
+  const openEvidence = async (attachment: RdoAttachment) => {
+    try {
+      const result = await api.readAttachment(attachment.id);
+      const binary = atob(result.base64);
+      const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bytes], { type: result.mime_type }));
+      window.open(url, '_blank', 'noopener,noreferrer');
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (error) {
+      Message.error(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const downloadEvidence = async (attachment: RdoAttachment) => {
+    try {
+      const result = await api.readAttachment(attachment.id);
+      const binary = atob(result.base64);
+      const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bytes], { type: result.mime_type }));
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = result.filename;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      Message.error(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const uploadEvidence = async (file: File): Promise<boolean> => {
+    if (!selectedEntry || selectedEntry.status === 'approved') return false;
+    if (!actorName.trim() || !actorRole.trim()) {
+      Message.warning(t('agentTasks.rdo.actorRequired', { defaultValue: 'Informe nome e função do responsável.' }));
+      return false;
+    }
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let binary = '';
+      for (let index = 0; index < bytes.length; index += 0x8000)
+        binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
+      const saved = await api.addAttachment({
+        entry_id: selectedEntry.id,
+        original_name: file.name,
+        mime_type: file.type as RdoAttachment['mime_type'],
+        base64: btoa(binary),
+        actor: { name: actorName.trim(), role: actorRole.trim() },
+      });
+      setAttachments((current) => [...current, saved]);
+      Message.success(t('agentTasks.rdo.evidenceAdded', { defaultValue: 'Evidência adicionada.' }));
+    } catch (error) {
+      Message.error(error instanceof Error ? error.message : String(error));
+    }
+    return false;
+  };
+
+  const removeEvidence = async (attachmentId: string) => {
+    if (!actorName.trim() || !actorRole.trim()) {
+      Message.warning(t('agentTasks.rdo.actorRequired', { defaultValue: 'Informe nome e função do responsável.' }));
+      return;
+    }
+    try {
+      await api.removeAttachment(attachmentId, { name: actorName.trim(), role: actorRole.trim() });
+      setAttachments((current) => current.filter((item) => item.id !== attachmentId));
+    } catch (error) {
+      Message.error(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   const generateReport = async () => {
     if (!window.taskAPI || !board) {
-      setReportError(t('agentTasks.rdo.desktopOnly', { defaultValue: 'A geração por agente está disponível no app desktop.' }));
+      setReportError(
+        t('agentTasks.rdo.desktopOnly', { defaultValue: 'A geração por agente está disponível no app desktop.' })
+      );
       return;
     }
     if (!agentId) {
-      setReportError(t('agentTasks.rdo.agentRequired', { defaultValue: 'Escolha o agente que vai gerar o relatório.' }));
+      setReportError(
+        t('agentTasks.rdo.agentRequired', { defaultValue: 'Escolha o agente que vai gerar o relatório.' })
+      );
       return;
     }
     setGenerating(true);
@@ -207,13 +390,21 @@ const RdoPage: React.FC = () => {
   };
 
   if (!hasTaskApi && !window.rdoAPI && boardsLoading) {
-    return <div className='flex h-full items-center justify-center'><Spin /></div>;
+    return (
+      <div className='flex h-full items-center justify-center'>
+        <Spin />
+      </div>
+    );
   }
 
   if (!board) {
     return (
       <div className='flex h-full items-center justify-center p-24px'>
-        <Empty description={t('agentTasks.rdo.noBoard', { defaultValue: 'Crie um quadro no Kanban para começar um Diário de Campo.' })} />
+        <Empty
+          description={t('agentTasks.rdo.noBoard', {
+            defaultValue: 'Crie um quadro no Kanban para começar um Diário de Campo.',
+          })}
+        />
       </div>
     );
   }
@@ -231,13 +422,19 @@ const RdoPage: React.FC = () => {
                 {t('agentTasks.rdo.title', { defaultValue: 'Diário de Campo' })}
               </h1>
               <p className='mt-3px mb-0 text-12px text-t-secondary'>
-                {t('agentTasks.rdo.subtitle', { defaultValue: 'Registro diário da obra, separado das tarefas do Kanban.' })}
+                {t('agentTasks.rdo.subtitle', {
+                  defaultValue: 'Registro diário da obra, separado das tarefas do Kanban.',
+                })}
               </p>
             </div>
           </div>
           <div className='flex flex-wrap items-center gap-8px'>
             <Select className='min-w-180px' value={board.id} onChange={(value) => setBoardId(value)}>
-              {activeBoards.map((item) => <Select.Option key={item.id} value={item.id}>{item.name}</Select.Option>)}
+              {activeBoards.map((item) => (
+                <Select.Option key={item.id} value={item.id}>
+                  {item.name}
+                </Select.Option>
+              ))}
             </Select>
             <Button icon={<Plus size={14} />} onClick={startNew}>
               {t('agentTasks.rdo.newDay', { defaultValue: 'Novo diário de hoje' })}
@@ -250,15 +447,23 @@ const RdoPage: React.FC = () => {
         <aside className='min-h-180px rounded-12px border border-solid border-[var(--color-border-2)] bg-[var(--color-fill-1)] lg:min-h-0 lg:overflow-y-auto'>
           <div className='flex items-center justify-between border-b border-solid border-[var(--color-border-2)] px-14px py-12px'>
             <div>
-              <h2 className='m-0 text-13px font-semibold text-t-primary'>{t('agentTasks.rdo.history', { defaultValue: 'Histórico diário' })}</h2>
+              <h2 className='m-0 text-13px font-semibold text-t-primary'>
+                {t('agentTasks.rdo.history', { defaultValue: 'Histórico diário' })}
+              </h2>
               <p className='mt-3px mb-0 text-11px text-t-tertiary'>{board.name}</p>
             </div>
             <Tag>{entries.length}</Tag>
           </div>
-          {loadingEntries ? <div className='flex justify-center p-20px'><Spin size={16} /></div> : null}
+          {loadingEntries ? (
+            <div className='flex justify-center p-20px'>
+              <Spin size={16} />
+            </div>
+          ) : null}
           {!loadingEntries && entries.length === 0 ? (
             <p className='px-14px py-18px text-12px leading-18px text-t-tertiary'>
-              {t('agentTasks.rdo.emptyHistory', { defaultValue: 'Nenhum diário registrado para esta obra. Comece pelo registro de hoje.' })}
+              {t('agentTasks.rdo.emptyHistory', {
+                defaultValue: 'Nenhum diário registrado para esta obra. Comece pelo registro de hoje.',
+              })}
             </p>
           ) : null}
           <div className='divide-y divide-[var(--color-border-2)]'>
@@ -272,12 +477,17 @@ const RdoPage: React.FC = () => {
                 }`}
               >
                 <span className='flex items-center justify-between gap-8px'>
-                  <span className='text-13px font-medium text-t-primary'>{dayjs(entry.work_date).format('ddd, DD [de] MMM')}</span>
+                  <span className='text-13px font-medium text-t-primary'>
+                    {dayjs(entry.work_date).format('ddd, DD [de] MMM')}
+                  </span>
                   {entry.report_task_id ? <Robot size={14} className='shrink-0 text-primary' /> : null}
                 </span>
                 <span className='mt-4px block truncate text-11px text-t-secondary'>
                   {entry.work_summary || t('agentTasks.rdo.noSummary', { defaultValue: 'Sem resumo dos serviços' })}
                 </span>
+                <Tag className='mt-6px' color={entry.status === 'approved' ? 'green' : 'orange'}>
+                  {entry.status === 'approved' ? 'Aprovado' : 'Rascunho'}
+                </Tag>
               </button>
             ))}
           </div>
@@ -293,42 +503,85 @@ const RdoPage: React.FC = () => {
                     : t('agentTasks.rdo.newDayTitle', { defaultValue: 'Novo registro de campo' })}
                 </h2>
                 <p className='mt-4px mb-0 text-11px text-t-tertiary'>
-                  {t('agentTasks.rdo.editHint', { defaultValue: 'Preencha o que foi observado. O agente só redige o relatório com os dados registrados.' })}
+                  {t('agentTasks.rdo.editHint', {
+                    defaultValue:
+                      'Preencha o que foi observado. O agente só redige o relatório com os dados registrados.',
+                  })}
                 </p>
               </div>
               {selectedEntry ? <Tag color='blue'>{dayjs(selectedEntry.work_date).format('DD/MM/YYYY')}</Tag> : null}
             </div>
 
-            <div className='grid grid-cols-1 gap-12px md:grid-cols-2'>
+            <div
+              className={`grid grid-cols-1 gap-12px md:grid-cols-2 ${selectedEntry?.status === 'approved' ? 'pointer-events-none opacity-65' : ''}`}
+            >
               <label className='text-12px text-t-secondary'>
                 {t('agentTasks.rdo.date', { defaultValue: 'Data da obra' })}
-                <DatePicker className='mt-5px w-full' value={dayjs(draft.work_date)} onChange={(_value, date) => {
-                  if (date) {
-                    const workDate = date.format('YYYY-MM-DD');
-                    const match = entries.find((entry) => entry.work_date === workDate);
-                    setSelectedId(match?.id ?? null);
-                    setDraft(match ? draftFromEntry(match) : emptyDraft(workDate));
-                  }
-                }} />
+                <DatePicker
+                  className='mt-5px w-full'
+                  value={dayjs(draft.work_date)}
+                  onChange={(_value, date) => {
+                    if (date) {
+                      const workDate = date.format('YYYY-MM-DD');
+                      const match = entries.find((entry) => entry.work_date === workDate);
+                      setSelectedId(match?.id ?? null);
+                      setDraft(match ? draftFromEntry(match) : emptyDraft(workDate));
+                    }
+                  }}
+                />
               </label>
               <label className='text-12px text-t-secondary'>
                 {t('agentTasks.rdo.weatherLabel', { defaultValue: 'Condição do tempo' })}
-                <Select className='mt-5px w-full' value={draft.weather} onChange={(value) => setDraft((current) => ({ ...current, weather: value }))}>
-                  {RDO_WEATHER_OPTIONS.map((weather) => <Select.Option key={weather} value={weather}>{weatherLabels[weather]}</Select.Option>)}
+                <Select
+                  className='mt-5px w-full'
+                  value={draft.weather}
+                  onChange={(value) => setDraft((current) => ({ ...current, weather: value }))}
+                >
+                  {RDO_WEATHER_OPTIONS.map((weather) => (
+                    <Select.Option key={weather} value={weather}>
+                      {weatherLabels[weather]}
+                    </Select.Option>
+                  ))}
                 </Select>
               </label>
               <Field label={t('agentTasks.rdo.weatherNotes', { defaultValue: 'Observações do clima / impacto' })}>
-                <Input.TextArea value={draft.weather_notes} autoSize={{ minRows: 2, maxRows: 5 }} onChange={(value) => setDraft((current) => ({ ...current, weather_notes: value }))} />
+                <Input.TextArea
+                  value={draft.weather_notes}
+                  autoSize={{ minRows: 2, maxRows: 5 }}
+                  onChange={(value) => setDraft((current) => ({ ...current, weather_notes: value }))}
+                />
               </Field>
               <label className='text-12px text-t-secondary'>
                 {t('agentTasks.rdo.workforceCount', { defaultValue: 'Efetivo total no dia' })}
-                <InputNumber className='mt-5px w-full' min={0} precision={0} value={draft.workforce_count ?? undefined} onChange={(value) => setDraft((current) => ({ ...current, workforce_count: typeof value === 'number' ? value : null }))} />
+                <InputNumber
+                  className='mt-5px w-full'
+                  min={0}
+                  precision={0}
+                  value={draft.workforce_count ?? undefined}
+                  onChange={(value) =>
+                    setDraft((current) => ({ ...current, workforce_count: typeof value === 'number' ? value : null }))
+                  }
+                />
               </label>
               <Field label={t('agentTasks.rdo.workforceNotes', { defaultValue: 'Equipes e funções' })}>
-                <Input.TextArea value={draft.workforce_notes} placeholder={t('agentTasks.rdo.workforcePlaceholder', { defaultValue: 'Ex.: 2 pedreiros, 3 serventes, 1 eletricista' })} autoSize={{ minRows: 2, maxRows: 5 }} onChange={(value) => setDraft((current) => ({ ...current, workforce_notes: value }))} />
+                <Input.TextArea
+                  value={draft.workforce_notes}
+                  placeholder={t('agentTasks.rdo.workforcePlaceholder', {
+                    defaultValue: 'Ex.: 2 pedreiros, 3 serventes, 1 eletricista',
+                  })}
+                  autoSize={{ minRows: 2, maxRows: 5 }}
+                  onChange={(value) => setDraft((current) => ({ ...current, workforce_notes: value }))}
+                />
               </Field>
               <Field label={t('agentTasks.rdo.workSummary', { defaultValue: 'Resumo dos serviços executados' })} wide>
-                <Input.TextArea value={draft.work_summary} placeholder={t('agentTasks.rdo.workPlaceholder', { defaultValue: 'O que foi executado hoje, por frente ou ambiente?' })} autoSize={{ minRows: 3, maxRows: 8 }} onChange={(value) => setDraft((current) => ({ ...current, work_summary: value }))} />
+                <Input.TextArea
+                  value={draft.work_summary}
+                  placeholder={t('agentTasks.rdo.workPlaceholder', {
+                    defaultValue: 'O que foi executado hoje, por frente ou ambiente?',
+                  })}
+                  autoSize={{ minRows: 3, maxRows: 8 }}
+                  onChange={(value) => setDraft((current) => ({ ...current, work_summary: value }))}
+                />
               </Field>
               <Field label={t('agentTasks.rdo.services', { defaultValue: 'Serviços do Kanban relacionados' })} wide>
                 <Select
@@ -336,35 +589,167 @@ const RdoPage: React.FC = () => {
                   mode='multiple'
                   allowClear
                   value={draft.linked_card_ids}
-                  placeholder={t('agentTasks.rdo.servicesPlaceholder', { defaultValue: 'Selecione os serviços trabalhados hoje' })}
+                  placeholder={t('agentTasks.rdo.servicesPlaceholder', {
+                    defaultValue: 'Selecione os serviços trabalhados hoje',
+                  })}
                   onChange={(value) => setDraft((current) => ({ ...current, linked_card_ids: value }))}
                 >
-                  {board.cards.filter((card) => !card.archived).map((card) => (
-                    <Select.Option key={card.id} value={card.id}>{card.title}</Select.Option>
-                  ))}
+                  {board.cards
+                    .filter((card) => !card.archived)
+                    .map((card) => (
+                      <Select.Option key={card.id} value={card.id}>
+                        {card.title}
+                      </Select.Option>
+                    ))}
                 </Select>
+                {dayServices.length > 0 ? (
+                  <div className='mt-8px rounded-8px bg-[var(--color-fill-2)] p-10px'>
+                    <p className='m-0 text-11px font-semibold text-t-primary'>
+                      Produção registrada no Kanban nesta data
+                    </p>
+                    {dayServices.map((service) => (
+                      <div key={service.title} className='mt-6px text-11px text-t-secondary'>
+                        <strong>{service.title}</strong>
+                        {service.logs.map((log) => (
+                          <span key={log.id ?? `${log.work_date}-${log.location}`} className='ml-6px'>
+                            {log.quantity ?? 'Não medido'} {log.unit ?? ''}
+                            {log.location ? ` · ${log.location}` : ''}
+                          </span>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
               </Field>
               <Field label={t('agentTasks.rdo.equipment', { defaultValue: 'Equipamentos utilizados' })}>
-                <Input.TextArea value={draft.equipment} autoSize={{ minRows: 2, maxRows: 5 }} onChange={(value) => setDraft((current) => ({ ...current, equipment: value }))} />
+                <Input.TextArea
+                  value={draft.equipment}
+                  autoSize={{ minRows: 2, maxRows: 5 }}
+                  onChange={(value) => setDraft((current) => ({ ...current, equipment: value }))}
+                />
               </Field>
               <Field label={t('agentTasks.rdo.materials', { defaultValue: 'Materiais / recebimentos / faltas' })}>
-                <Input.TextArea value={draft.materials} autoSize={{ minRows: 2, maxRows: 5 }} onChange={(value) => setDraft((current) => ({ ...current, materials: value }))} />
+                <Input.TextArea
+                  value={draft.materials}
+                  autoSize={{ minRows: 2, maxRows: 5 }}
+                  onChange={(value) => setDraft((current) => ({ ...current, materials: value }))}
+                />
               </Field>
               <Field label={t('agentTasks.rdo.occurrences', { defaultValue: 'Ocorrências e impedimentos' })}>
-                <Input.TextArea value={draft.occurrences} autoSize={{ minRows: 2, maxRows: 5 }} onChange={(value) => setDraft((current) => ({ ...current, occurrences: value }))} />
+                <Input.TextArea
+                  value={draft.occurrences}
+                  autoSize={{ minRows: 2, maxRows: 5 }}
+                  onChange={(value) => setDraft((current) => ({ ...current, occurrences: value }))}
+                />
               </Field>
               <Field label={t('agentTasks.rdo.safety', { defaultValue: 'Segurança / inspeções' })}>
-                <Input.TextArea value={draft.safety_notes} autoSize={{ minRows: 2, maxRows: 5 }} onChange={(value) => setDraft((current) => ({ ...current, safety_notes: value }))} />
+                <Input.TextArea
+                  value={draft.safety_notes}
+                  autoSize={{ minRows: 2, maxRows: 5 }}
+                  onChange={(value) => setDraft((current) => ({ ...current, safety_notes: value }))}
+                />
               </Field>
               <Field label={t('agentTasks.rdo.visitors', { defaultValue: 'Fiscalização / visitantes' })} wide>
-                <Input.TextArea value={draft.visitors} autoSize={{ minRows: 2, maxRows: 4 }} onChange={(value) => setDraft((current) => ({ ...current, visitors: value }))} />
+                <Input.TextArea
+                  value={draft.visitors}
+                  autoSize={{ minRows: 2, maxRows: 4 }}
+                  onChange={(value) => setDraft((current) => ({ ...current, visitors: value }))}
+                />
               </Field>
             </div>
             <div className='mt-14px flex flex-wrap justify-end gap-8px border-t border-solid border-[var(--color-border-2)] pt-12px'>
-              <Button type='primary' icon={<Save size={14} />} loading={saving} onClick={() => void saveEntry()}>
+              <Button
+                type='primary'
+                icon={<Save size={14} />}
+                loading={saving}
+                disabled={selectedEntry?.status === 'approved'}
+                onClick={() => void saveEntry()}
+              >
                 {t('agentTasks.rdo.save', { defaultValue: 'Salvar diário' })}
               </Button>
             </div>
+            {selectedEntry ? (
+              <div className='mt-14px grid grid-cols-1 gap-10px rounded-10px bg-[var(--color-fill-2)] p-12px md:grid-cols-2'>
+                <Input
+                  value={actorName}
+                  onChange={setActorName}
+                  placeholder={t('agentTasks.rdo.actorName', { defaultValue: 'Nome do responsável' })}
+                />
+                <Input
+                  value={actorRole}
+                  onChange={setActorRole}
+                  placeholder={t('agentTasks.rdo.actorRole', { defaultValue: 'Função' })}
+                />
+                {selectedEntry.status === 'approved' ? (
+                  <Input
+                    className='md:col-span-2'
+                    value={reopenReason}
+                    onChange={setReopenReason}
+                    placeholder={t('agentTasks.rdo.reopenReason', {
+                      defaultValue: 'Motivo obrigatório da reabertura',
+                    })}
+                  />
+                ) : null}
+                <div className='md:col-span-2'>
+                  <Upload
+                    accept='image/jpeg,image/png,image/webp,application/pdf'
+                    autoUpload={false}
+                    showUploadList={false}
+                    disabled={selectedEntry.status === 'approved'}
+                    beforeUpload={uploadEvidence}
+                  >
+                    <Button disabled={selectedEntry.status === 'approved'}>
+                      {t('agentTasks.rdo.addEvidence', { defaultValue: 'Adicionar foto ou PDF' })}
+                    </Button>
+                  </Upload>
+                  <div className='mt-8px space-y-5px'>
+                    {attachments.map((attachment) => (
+                      <div
+                        key={attachment.id}
+                        className='flex items-center justify-between gap-8px text-11px text-t-secondary'
+                      >
+                        <span className='truncate'>
+                          {attachment.original_name} · {(attachment.size_bytes / 1024).toFixed(1)} KB
+                        </span>
+                        <span className='flex shrink-0 items-center gap-4px'>
+                          <Button size='mini' onClick={() => void openEvidence(attachment)}>
+                            {t('agentTasks.rdo.openEvidence', { defaultValue: 'Abrir' })}
+                          </Button>
+                          <Button size='mini' onClick={() => void downloadEvidence(attachment)}>
+                            {t('agentTasks.rdo.downloadEvidence', { defaultValue: 'Baixar' })}
+                          </Button>
+                          {selectedEntry.status === 'draft' ? (
+                            <Button size='mini' status='danger' onClick={() => void removeEvidence(attachment.id)}>
+                              {t('agentTasks.rdo.removeEvidence', { defaultValue: 'Remover' })}
+                            </Button>
+                          ) : null}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className='flex justify-end md:col-span-2'>
+                  <Button className='mr-8px' loading={exportingPdf} onClick={() => void exportPdf()}>
+                    {t('agentTasks.rdo.exportPdf', { defaultValue: 'Baixar PDF' })}
+                  </Button>
+                  <Button
+                    type='primary'
+                    status={selectedEntry.status === 'approved' ? 'warning' : 'success'}
+                    loading={transitioning}
+                    onClick={() => void transitionEntry(selectedEntry.status === 'approved' ? 'reopen' : 'approve')}
+                  >
+                    {selectedEntry.status === 'approved'
+                      ? t('agentTasks.rdo.reopen', { defaultValue: 'Reabrir com justificativa' })
+                      : t('agentTasks.rdo.approve', { defaultValue: 'Aprovar e congelar' })}
+                  </Button>
+                </div>
+                {selectedEntry.approved_hash ? (
+                  <p className='m-0 break-all text-10px text-t-tertiary md:col-span-2'>
+                    Hash: {selectedEntry.approved_hash}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
           </div>
 
           <section className='rounded-12px border border-solid border-[var(--color-border-2)] bg-[var(--color-fill-1)] p-14px md:p-18px'>
@@ -377,14 +762,32 @@ const RdoPage: React.FC = () => {
                   </h2>
                 </div>
                 <p className='mt-5px mb-0 text-11px leading-16px text-t-secondary'>
-                  {t('agentTasks.rdo.reportHint', { defaultValue: 'Escolha um agente habilitado. Ele organiza os registros; não inventa informações nem substitui a conferência do responsável.' })}
+                  {t('agentTasks.rdo.reportHint', {
+                    defaultValue:
+                      'Escolha um agente habilitado. Ele organiza os registros; não inventa informações nem substitui a conferência do responsável.',
+                  })}
                 </p>
               </div>
               <div className='flex w-full flex-wrap gap-8px md:w-auto'>
-                <Select className='min-w-210px flex-1' value={agentId ?? undefined} placeholder={t('agentTasks.rdo.agentPlaceholder', { defaultValue: 'Escolha um agente' })} onChange={setAgentId}>
-                  {agents.map((agent) => <Select.Option key={agent.id} value={agent.id}>{agent.name}</Select.Option>)}
+                <Select
+                  className='min-w-210px flex-1'
+                  value={agentId ?? undefined}
+                  placeholder={t('agentTasks.rdo.agentPlaceholder', { defaultValue: 'Escolha um agente' })}
+                  onChange={setAgentId}
+                >
+                  {agents.map((agent) => (
+                    <Select.Option key={agent.id} value={agent.id}>
+                      {agent.name}
+                    </Select.Option>
+                  ))}
                 </Select>
-                <Button type='primary' icon={<Robot size={14} />} loading={reportBusy} disabled={!hasTaskApi || !agentId || !selectedEntry} onClick={() => void generateReport()}>
+                <Button
+                  type='primary'
+                  icon={<Robot size={14} />}
+                  loading={reportBusy}
+                  disabled={!hasTaskApi || !agentId || !selectedEntry}
+                  onClick={() => void generateReport()}
+                >
                   {selectedEntry?.report_task_id
                     ? t('agentTasks.rdo.regenerate', { defaultValue: 'Gerar novamente' })
                     : t('agentTasks.rdo.generate', { defaultValue: 'Gerar relatório' })}
@@ -394,37 +797,64 @@ const RdoPage: React.FC = () => {
 
             {!hasTaskApi ? (
               <div className='mt-12px rounded-8px bg-[var(--color-fill-2)] px-12px py-9px text-11px text-t-secondary'>
-                {t('agentTasks.rdo.desktopOnly', { defaultValue: 'A geração por agente está disponível no app desktop. O preenchimento do diário pode ser feito pelo WebUI.' })}
+                {t('agentTasks.rdo.desktopOnly', {
+                  defaultValue:
+                    'A geração por agente está disponível no app desktop. O preenchimento do diário pode ser feito pelo WebUI.',
+                })}
               </div>
             ) : null}
             {!selectedEntry ? (
               <div className='mt-12px rounded-8px bg-[var(--color-fill-2)] px-12px py-9px text-11px text-t-secondary'>
-                {t('agentTasks.rdo.saveBeforeReport', { defaultValue: 'Salve o diário antes de pedir a geração do relatório.' })}
+                {t('agentTasks.rdo.saveBeforeReport', {
+                  defaultValue: 'Salve o diário antes de pedir a geração do relatório.',
+                })}
               </div>
             ) : null}
-            {reportError ? <p role='alert' className='mt-10px text-12px text-danger-6'>{reportError}</p> : null}
+            {reportError ? (
+              <p role='alert' className='mt-10px text-12px text-danger-6'>
+                {reportError}
+              </p>
+            ) : null}
             {reportTask ? (
               <div className='mt-12px border-t border-solid border-[var(--color-border-2)] pt-12px'>
                 <div className='mb-10px flex flex-wrap items-center gap-8px'>
-                  <Tag color={reportTask.status === 'completed' ? 'green' : reportTask.status === 'failed' ? 'red' : 'arcoblue'}>
+                  <Tag
+                    color={
+                      reportTask.status === 'completed' ? 'green' : reportTask.status === 'failed' ? 'red' : 'arcoblue'
+                    }
+                  >
                     {statusLabel(reportTask, t)}
                   </Tag>
-                  {reportIsStale ? <Tag color='orange'>{t('agentTasks.rdo.reportStale', { defaultValue: 'Diário alterado após a geração' })}</Tag> : null}
+                  {reportIsStale ? (
+                    <Tag color='orange'>
+                      {t('agentTasks.rdo.reportStale', { defaultValue: 'Diário alterado após a geração' })}
+                    </Tag>
+                  ) : null}
                 </div>
                 {reportTask.status === 'pending' || reportTask.status === 'running' ? (
-                  <div className='flex items-center gap-8px py-12px text-12px text-t-secondary'><Spin size={16} />{t('agentTasks.rdo.generating', { defaultValue: 'O agente está organizando os dados do dia…' })}</div>
+                  <div className='flex items-center gap-8px py-12px text-12px text-t-secondary'>
+                    <Spin size={16} />
+                    {t('agentTasks.rdo.generating', { defaultValue: 'O agente está organizando os dados do dia…' })}
+                  </div>
                 ) : reportTask.status === 'failed' ? (
-                  <p className='text-12px text-danger-6'>{reportTask.error || t('agentTasks.rdo.reportFailed', { defaultValue: 'O agente não conseguiu gerar o relatório.' })}</p>
+                  <p className='text-12px text-danger-6'>
+                    {reportTask.error ||
+                      t('agentTasks.rdo.reportFailed', { defaultValue: 'O agente não conseguiu gerar o relatório.' })}
+                  </p>
                 ) : reportTask.result ? (
                   <article className='max-h-560px overflow-y-auto rounded-8px bg-[var(--color-fill-2)] p-14px text-13px leading-20px text-t-primary'>
                     <ReactMarkdown>{reportTask.result}</ReactMarkdown>
                   </article>
                 ) : (
-                  <p className='text-12px text-t-secondary'>{t('agentTasks.rdo.noReport', { defaultValue: 'O agente concluiu sem retornar conteúdo.' })}</p>
+                  <p className='text-12px text-t-secondary'>
+                    {t('agentTasks.rdo.noReport', { defaultValue: 'O agente concluiu sem retornar conteúdo.' })}
+                  </p>
                 )}
               </div>
             ) : selectedEntry?.report_task_id ? (
-              <p className='mt-12px text-11px text-t-tertiary'>{t('agentTasks.rdo.loadingReport', { defaultValue: 'Carregando o andamento do relatório…' })}</p>
+              <p className='mt-12px text-11px text-t-tertiary'>
+                {t('agentTasks.rdo.loadingReport', { defaultValue: 'Carregando o andamento do relatório…' })}
+              </p>
             ) : null}
           </section>
         </section>

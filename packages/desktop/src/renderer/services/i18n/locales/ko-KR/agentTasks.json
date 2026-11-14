@@ -59,5 +59,22 @@
       "paceRisk": "Pace at risk",
       "paceRiskTooltip": "At the measured pace, the remaining work is projected to exceed the available working days before the deadline. This is a field estimate, not a CPM forecast."
     }
+  },
+  "rdo": {
+    "actorRequired": "Enter the responsible person name and role.",
+    "actorName": "Responsible person name",
+    "actorRole": "Role",
+    "reasonRequired": "Enter the reason for reopening.",
+    "reopenReason": "Required reopening reason",
+    "approved": "Diary approved and frozen.",
+    "reopened": "Diary reopened for revision.",
+    "approve": "Approve and freeze",
+    "reopen": "Reopen with reason",
+    "exportPdf": "Download PDF",
+    "addEvidence": "Add photo or PDF",
+    "evidenceAdded": "Evidence added.",
+    "openEvidence": "Open",
+    "downloadEvidence": "Download",
+    "removeEvidence": "Remove"
   }
 }

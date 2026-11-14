@@ -9,7 +9,8 @@ import React, { useState } from 'react';
 import { Button, Input, Tooltip } from '@arco-design/web-react';
 import { BookOpen, Right } from '@icon-park/react';
 import { useTranslation } from 'react-i18next';
-import { cleanupSiderTooltips, getSiderTooltipProps } from '@renderer/utils/ui/siderTooltip';
+import { cleanupSiderTooltips } from '@renderer/utils/ui/siderTooltip';
+import type { getSiderTooltipProps } from '@renderer/utils/ui/siderTooltip';
 
 interface SiderMemoryEntryProps {
   isMobile: boolean;
@@ -33,9 +34,10 @@ const SiderMemoryEntry: React.FC<SiderMemoryEntryProps> = ({
     { id: '3', title: 'Foundation Bearing Capacity', preview: 'q_ult = c*Nc + q*Nq + 0.5*B*Nγ*w' },
   ]);
 
-  const filteredMemories = memories.filter(memory =>
-    memory.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    memory.preview.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredMemories = memories.filter(
+    (memory) =>
+      memory.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      memory.preview.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const handleSearchChange = (value: string) => {
